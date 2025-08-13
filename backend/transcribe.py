@@ -1,6 +1,5 @@
 import asyncio
 import os
-from typing import Optional, List, Dict, Any
 import tempfile
 from pydub import AudioSegment
 import whisper
@@ -9,8 +8,6 @@ from concurrent.futures import ThreadPoolExecutor
 import logging
 import multiprocessing
 import requests
-from io import StringIO
-import sys
 
 logging.basicConfig(level=logging.INFO)
 logging.getLogger("whisper").setLevel(logging.ERROR)
@@ -18,10 +15,17 @@ logger = logging.getLogger(__name__)
 
 class transcribe:
     def __init__(self, model_size: str = "tiny", chunk_duration_ms: int = 120000, device: str = None):
+        """
+        Initialize transcriber
+
+        Args:
+            model_size (str): desired whisper model size
+            chunk_duration_ms (str): size of each chunk
+            device (str): run whisper on gpu or cpu
+        """
         if device is None:
             device = "cuda" if torch.cuda.is_available() else "cpu"
 
-        self.model = whisper.load_model(model_size, device=device)
         self.model_size = model_size
         self.chunk_duration_ms = chunk_duration_ms
         self.device = device
@@ -34,8 +38,17 @@ class transcribe:
 
         self.threadexecutor = ThreadPoolExecutor(max_workers=max_workers)
 
-    async def transcribe_large_files(self, file_path: str, language: Optional[str] = None, 
-                                     initial_prompt: Optional[str] = None, progress_bar: bool = False):
+    async def transcribe_large_files(self, file_path: str):
+        """
+        Main function to transcribe file
+
+        Args:
+            file_path (str): audio url from rss_processor of episode
+
+        Returns:
+            list[dict]: full transcripts, duration, and chunks
+        """
+
         self._download_file(file_path)
         audio = AudioSegment.from_file("output.mp3")
         logger.info("Loaded audio")
@@ -53,7 +66,7 @@ class transcribe:
             task = loop.run_in_executor(
                 self.threadexecutor,
                 self._transcribe_chunk,
-                audio, start_time, end_time, i, language, initial_prompt
+                audio, start_time, end_time, i
             )
             tasks.append(task)
 
@@ -62,6 +75,13 @@ class transcribe:
         return self._combine(results=results, total_duration_ms=total_duration_ms)
 
     def _download_file(self, url: str):
+        """
+        Download mp3 given url
+
+        Args:
+            url (str): audio url from rss_processor of episode
+        """
+
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
         }
@@ -72,8 +92,20 @@ class transcribe:
                 if chunk:
                     f.write(chunk)
 
-    def _transcribe_chunk(self, audio: AudioSegment, start_ms: int, end_ms: int, chunk_id: int, language: Optional[str], 
-                          initial_prompt: Optional[str]):
+    def _transcribe_chunk(self, audio: AudioSegment, start_ms: int, end_ms: int, chunk_id: int):
+        """
+        Given chunk of audio, extract full audio
+
+        Args:
+            audio (AudioSegment): the processed audio
+            start_ms (int): start point of audio
+            end_ms: end point of audio
+            chunk_id: id of the chunk for future ordering
+
+        Returns:
+            list[dict]: returning language, chunk_id, and text
+        """
+
         try:
             chunk = audio[start_ms:end_ms]
 
@@ -112,7 +144,17 @@ class transcribe:
                 "success": False
             }
         
-    def _combine(self, results: List[Dict], total_duration_ms: int): 
+    def _combine(self, results: list, total_duration_ms: int): 
+        """
+        Combining the texts from all the chunks into one transcript
+
+        Args:
+            results (list): all chunks combined into one file
+            total_duration_ms (int): the total duration of the audio file
+        
+        Returns:
+            list[dict]: returns full transcript, language, duration, and how many chunks were successful
+        """
         successful_results = [result for result in results if isinstance(result, dict) and result.get("success")]
         failed_results = [result for result in results if isinstance(result, dict) and not result.get("success")]
 
