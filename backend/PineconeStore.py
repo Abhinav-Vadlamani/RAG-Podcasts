@@ -227,3 +227,15 @@ class PineconeStore:
             
         except Exception as e:
             raise Exception(f"Error querying podcast content: {str(e)}")
+        
+    def delete_chat(self, chat_id: str):
+        try:
+            self.index.delete(
+                filter={"chat_id": {"$eq": chat_id}}
+            )
+
+            return {
+                "status": "success"
+            }
+        except Exception as e:
+            raise Exception(f"Error deleting contents: {str(e)}")
