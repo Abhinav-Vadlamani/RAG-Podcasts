@@ -14,7 +14,7 @@ logging.getLogger("whisper").setLevel(logging.ERROR)
 logger = logging.getLogger(__name__)
 
 class transcribe:
-    def __init__(self, model_size: str = "tiny", chunk_duration_ms: int = 120000, device: str = None):
+    def __init__(self, model_size: str = "tiny", chunk_duration_ms: int = 60000, device: str = None):
         """
         Initialize transcriber
 
@@ -38,7 +38,7 @@ class transcribe:
 
         self.threadexecutor = ThreadPoolExecutor(max_workers=max_workers)
 
-    async def transcribe_large_files(self, file_path: str):
+    async def transcribe_large_files(self, file_path: str, return_timestamps: bool = False):
         """
         Main function to transcribe file
 
@@ -72,7 +72,12 @@ class transcribe:
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
         os.remove("output.mp3")
-        return self._combine(results=results, total_duration_ms=total_duration_ms)
+        if return_timestamps:
+            successful_results = [result for result in results if isinstance(result, dict) and result.get("success")]
+            successful_results.sort(key=lambda x: x["chunk_id"])
+            return successful_results
+        else:
+            return self._combine(results=results, total_duration_ms=total_duration_ms)
 
     def _download_file(self, url: str):
         """
