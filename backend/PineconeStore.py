@@ -6,7 +6,7 @@ from pinecone import Pinecone, ServerlessSpec
 from sentence_transformers import SentenceTransformer
 
 class PineconeStore:
-    def __init__(self, pinecone_api_key: str, index_name: str = "podcast-content"):
+    def __init__(self, pinecone_api_key: str, index_name: str = "podcast-transcripts"):
         self.embedding_model_type = "sentence-transformers"
         self.embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
         self.embedding_dimension = 384

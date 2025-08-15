@@ -23,7 +23,16 @@ def return_episode_items(feed_url):
             "id": id,
             "title": e.get("title"),
             "published": e.get("published"),
+            "summary": e.get("summary"),
             "audioUrl": audio,
             "link": e.get("link"),
         })
     return eps
+
+def return_podcast_summary(feed_url: str):
+    feed = feedparser.parse(feed_url)
+
+    if feed.feed.get('summary') is None or feed.feed.get('summary') == ' ':
+        return feed.feed.get('summary')
+    else:
+        return feed.feed.get('subtitle')

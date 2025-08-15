@@ -1,4 +1,5 @@
 import requests
+from rss_processor import return_podcast_summary
 
 itunes = "https://itunes.apple.com"
 
@@ -29,6 +30,7 @@ def search_shows(term: str, country="us", limit=10):
             "collectionName": output.get("collectionName"),
             "artistName": output.get("artistName"),
             "feedUrl": output.get("feedUrl"),
+            "summary": return_podcast_summary(output.get("feedUrl")),
             "artworkUrl600": output.get("artworkUrl600"),
         })
     return shows
