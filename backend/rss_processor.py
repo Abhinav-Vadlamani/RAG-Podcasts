@@ -5,7 +5,7 @@ def return_episode_items(feed_url):
     Given a feed url from the Apple iTunes search, return episode information with audio url for processing
 
     Args:
-        feed_url (str): feed url from apple episode search
+        feed_url (str): feed url from apple podcast search
 
     Returns:
         list[dict]: list of all episode information
@@ -30,6 +30,15 @@ def return_episode_items(feed_url):
     return eps
 
 def return_podcast_summary(feed_url: str):
+    """
+    Given a feed url from the Apple iTunes search, return the podcast summary
+
+    Args:
+        feed_url (str): feed url from apple podcast search
+
+    Returns:
+        str: the summary of the podcast
+    """
     feed = feedparser.parse(feed_url)
 
     if feed.feed.get('summary') is None or feed.feed.get('summary') == ' ':

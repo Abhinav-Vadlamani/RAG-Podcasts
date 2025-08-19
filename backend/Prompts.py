@@ -1,7 +1,6 @@
 import PineconeStore
 from pydantic import BaseModel, Field
 import EpisodeSearch
-from typing import List, Dict, Any
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage
 from apple_catalog import search_shows, lookup_episodes
@@ -15,10 +14,24 @@ class Search_For_Episode(BaseModel):
     title: str = Field(description = "Episode title")
     summary: str = Field(description = "Episode summary")
 
+class TranscriptSearch(BaseModel):
+    id: str = Field(description = "Transcript ID")
+    transcript_content: str = Field(description = "Transcript contents")
+    duration: float = Field(description="Duration of transcript")
+    end_time: float = Field(description="End time of transcript")
+    start_time: float = Field(description="Start time of transcript")
+    episode_name: str = Field(description="Name of episode")
 class Prompts:
     def __init__(self, openai_key: str, pinecone_key: str):
+        """
+        Initialize Prompts object
+
+        Args:
+            openai_key (str): your openai api key
+            pinecone_key (str): your pinecone api key
+        """
         os.environ['TOKENIZERS_PARALLELISM'] = "false"
-        self.episode_store = EpisodeSearch.PineconeEpisodeStore(pinecone_api_key=pinecone_key, openai_api_key=openai_key)
+        self.episode_store = EpisodeSearch.PineconeEpisodeStore(pinecone_api_key=pinecone_key)
         self.transcript_store = PineconeStore.PineconeStore(pinecone_api_key=pinecone_key)
         self.model = ChatOpenAI(
             model="gpt-4o-mini",
@@ -28,14 +41,43 @@ class Prompts:
         )
     # TBD
     def return_search_or_query(self, query: str):
+        """
+        Given a query, returns whether it is a search or a query
+
+        Args:
+            query (str): user query
+        
+        Returns
+            str: SEARCH or QUERY based on model output
+        """
         prompt = f"""
         Analyze the following query: {query}
-        Is this a request to search for a Podcast episode or a question about a podcast video content
+        Is this a request to search for a Podcast episode or a question about a podcast video content.
+
+        Return only either "SEARCH" or "QUERY" and nothing else as your response will be parsed by an algorithm.
+
+        Examples:
+        - "find episodes about cooking" -> "SEARCH"
+        - "search for magic tutorials" -> "SEARCH"
+        - "look up episodes about basketball" -> "SEARCH"
+        - "what did they say about the impact of social media?" -> "QUERY"
+        - "can you explain the podcasts main points?" -> "QUERY"
+        - "what happened in this episode?" -> QUERY
         """
 
+        response = self.model.invoke([HumanMessage(content=prompt)])
+        return response.content.strip()
 
     def return_relevant_podcasts(self, query: str):
-        """Return the most relevant podcast given the users input"""
+        """
+        Return the most relevant podcast given the users input
+        
+        Args:
+            query (str): user query
+        
+        Returns:
+            List[Dict[str, Any]]: a list of the most relevant podcasts and its corresponding information
+        """
 
         try:
             prompt = f"""
@@ -62,17 +104,19 @@ class Prompts:
         except Exception as e:
             raise Exception(f"Failure to find podcast: {str(e)}")
         
-    def return_relevant_episode(self, query: str, feedUrl: str, chat_id: str):
-        """Returns the most relevant episode"""
+    def return_relevant_episode(self, query: str, chat_id: str):
+        """
+        Returns the most relevant episode
+        
+        Args:
+            query (str): user query
+            feedUrl (str): feedUrl of the podcast with all the episodes
+            chat_id (str): id of the chat for pinecone
+
+        Returns:
+            Search_For_Episode: pydantic BaseModel object containing the most relevant episode id, title, and summary
+        """
         try:
-            print()
-            print()
-            print("storing episodes")
-            episodes = return_episode_items(feedUrl)
-            self.episode_store.embed_and_store_episodes(episodes)
-            print()
-            print()
-            print("query")
             top_episodes = self.episode_store.query_episodes(query=query, chat_id=chat_id)
 
             episodes_text_for_prompt = []
@@ -83,9 +127,6 @@ class Prompts:
                     f"     Summary: {episode.get('summary', "")}\n"
                 )
 
-            print()
-            print()
-            print("GPT")
             prompt = f"""Given the user query: {query}
                 You are trying to match this user query to one of the following podcast episodes that closely match it.
                 Please select the SINGLE best matching podcast episode from the following candidates:
@@ -105,5 +146,30 @@ class Prompts:
         except Exception as e:
             raise Exception(f"Failure to find episode: {str(e)}")
         
-    def return_relevant_transcript():
-        return "TO_BE_DONE"
+    def return_relevant_transcript(self, query: str, chat_id: str):
+        """
+        Returns the most relevant transcript
+
+        Args:
+            query (str): user query
+            chat_id (str): id of chat for pinecone
+        
+        Returns:
+            Dict[str, Any]: Dictionary of all useful information regarding the most relevant transcript
+        """
+
+        try:
+            result = self.transcript_store.query_podcast(question=query, chat_id=chat_id, top_k=2)
+            results = sorted(result.get('results'), key=lambda x:x['score'])
+            sorted_results = results[0]
+            output = {
+                'id': sorted_results.get('id'),
+                'content': sorted_results.get('content'),
+                'duration': sorted_results.get('metadata').get('duration'),
+                'end_time': sorted_results.get('metadata').get('end_time'),
+                'start_time': sorted_results.get('metadata').get('start_time'),
+                'episode_name': sorted_results.get('metadata').get('episode_name')
+            }
+            return output
+        except Exception as e:
+            raise Exception(f"Failure to find relevant transcript: {str(e)}")

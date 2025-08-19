@@ -1,12 +1,19 @@
 import uuid
 import torch
 from datetime import datetime
-from typing import List, Dict
+from typing import List, Dict, Any
 from pinecone import Pinecone, ServerlessSpec
 from sentence_transformers import SentenceTransformer
 
 class PineconeStore:
     def __init__(self, pinecone_api_key: str, index_name: str = "podcast-transcripts"):
+        """
+        Initialize pinecone storage for podcast transcripts
+
+        Args:
+            pinecone_api_key (str): your api key for pinecone
+            index_name (str): index name in pinecone for storage of data
+        """
         self.embedding_model_type = "sentence-transformers"
         self.embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
         self.embedding_dimension = 384
@@ -28,9 +35,29 @@ class PineconeStore:
         self.index = self.pc.Index(index_name)
 
     def _generate_text_embedding(self, text: str):
+        """
+        Returns sentence transformer embedding of the text
+
+        Args:
+            text (str): text to be embedded
+        
+        Returns:
+            list: the embedding of the text
+        """
         return self.embedding_model.encode(text).tolist()
     
-    def _chunk_transcript(self, transcript_chunks: List[Dict], chunk_size: int = 2000, overlap: int = 200):
+    def _chunk_transcript(self, transcript_chunks: List[Dict[str, Any]], chunk_size: int = 2000, overlap: int = 200):
+        """
+        Converts a transcript into chunks for better parsing by the algorithm
+
+        Args:
+            transcript_chunks (List[Dict[str, Any]]): full transcript splitted into chunks 
+            chunk_size (int): size of each transcript chunk in pinecone
+            overlap (int): character overlap between chunks
+        
+        Returns:
+            List[Dict[str, Any]]: transcript chunked into prefered chunk size
+        """
         sorted_chunks = sorted(transcript_chunks, key=lambda x:x['chunk_id'])
         transcript = " ".join([chunk['text'] for chunk in sorted_chunks if chunk.get('success')])
 
@@ -47,7 +74,7 @@ class PineconeStore:
 
             if end < text_len:
                 for i in range(end - 1, start, -1):
-                    if(transcript[i] in sentence_ends and i + 1 < text_len and transcript[i + 1 ].isspace()):
+                    if(transcript[i] in sentence_ends and i + 1 < text_len and transcript[i + 1].isspace()):
                         breakPoint = i+1
                         break
             if breakPoint == -1:
@@ -73,7 +100,17 @@ class PineconeStore:
             start = max(end - overlap, start + 1) if end < text_len else end
         return chunks
     
-    def _extract_timestamps_from_transcript(self, transcript_chunks: List[Dict], chunk: Dict):
+    def _extract_timestamps_from_transcript(self, transcript_chunks: List[Dict[str, Any]], chunk: Dict):
+        """
+        Given a particular chunk, return what the corresponding timestamp of it is
+
+        Args:
+            transcript_chunks (List[Dict[str, Any]]): full transcript splitted into chunks 
+            chunk (Dict): which of the transcript chunks to return time stamps for
+
+        Returns:
+            Dict[str, Any]: all relevant timestamp information for the given chunk
+        """
         timeline = []
         cumulative_chars = 0
         sorted_chunks = sorted(transcript_chunks, key=lambda x:x['chunk_id'])
@@ -133,8 +170,21 @@ class PineconeStore:
             'duration': end_timestamp - start_timestamp
         }
         
-    def store_podcast_information(self, transcript_chunks: List[Dict], podcast_metadata: Dict, chat_id: str, 
+    def store_podcast_information(self, transcript_chunks: List[Dict[str, Any]], podcast_metadata: Dict, chat_id: str, 
                                   chunk_size: int = 2000, overlap: int = 200):
+        """
+        Convert transcript chunks iot embeddings and upsert them into Pinecone storage
+
+        Args:
+            transcript_chunks (List[Dict[str, Any]]): full transcript splitted into chunks
+            podcast_metadata (Dict[str, Any]): metadata with relevant information about the podcast episode
+            chat_id: id for chat for pinecone storage
+            chunk_size (int): size of each transcript chunk in pinecone
+            overlap (int): character overlap between chunks
+        
+        Returns:
+            Dict[str, Any]: returns information about the storage process
+        """
         try:
             # Chunking transcript
             text_chunks = self._chunk_transcript(transcript_chunks=transcript_chunks, chunk_size=chunk_size, overlap=overlap)
@@ -198,6 +248,17 @@ class PineconeStore:
             raise Exception(f"Error storing podcast information: {str(e)}")
 
     def query_podcast(self, question: str, chat_id: str, top_k: int = 5):
+        """
+        Pinecone query to find transcript chunks that is most similar to user query
+
+        Args:
+            query (str): user query
+            chat_id (str): Pinecone chat ID
+            top_k (int): Maximum results for Pinecone to return
+
+        Returns:
+            Dict[str, Any]: all relevant information regarding Pinecone query results
+        """
         try:
             question_embedding = self._generate_text_embedding(text=question)
             query_filter = {"chat_id" : {"$eq": chat_id}}
@@ -229,6 +290,15 @@ class PineconeStore:
             raise Exception(f"Error querying podcast content: {str(e)}")
         
     def delete_chat(self, chat_id: str):
+        """"
+        Delete chat given pinecone id
+
+        Args:
+            chat_id (str): Pinecone chat ID
+
+        Returns:
+            Dict[str, Any]: status
+        """
         try:
             self.index.delete(
                 filter={"chat_id": {"$eq": chat_id}}

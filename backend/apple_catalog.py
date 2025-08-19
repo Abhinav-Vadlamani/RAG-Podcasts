@@ -8,7 +8,7 @@ def search_shows(term: str, country="us", limit=10):
     """
     Search queries using Apple iTunes search, returning only importnant information
 
-    Args:
+    Args: 
         term (str): search term for Apple iTunes search
         country (str): which country to search in
         limit (int): max number of shows the search query should return
