@@ -46,7 +46,7 @@ class PineconeStore:
         """
         return self.embedding_model.encode(text).tolist()
     
-    def _chunk_transcript(self, transcript_chunks: List[Dict[str, Any]], chunk_size: int = 2000, overlap: int = 200):
+    def _chunk_transcript(self, transcript_chunks: List[Dict[str, Any]], chunk_size: int = 1000, overlap: int = 200):
         """
         Converts a transcript into chunks for better parsing by the algorithm
 
@@ -171,7 +171,7 @@ class PineconeStore:
         }
         
     def store_podcast_information(self, transcript_chunks: List[Dict[str, Any]], podcast_metadata: Dict, chat_id: str, 
-                                  chunk_size: int = 2000, overlap: int = 200):
+                                  chunk_size: int = 1000, overlap: int = 200):
         """
         Convert transcript chunks iot embeddings and upsert them into Pinecone storage
 

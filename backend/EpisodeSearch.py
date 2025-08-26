@@ -1,7 +1,6 @@
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any
 import numpy as np
-from langchain_openai import OpenAIEmbeddings
 from sentence_transformers import SentenceTransformer
 from pinecone import Pinecone, ServerlessSpec
 import time
@@ -17,7 +16,6 @@ class PineconeEpisodeStore:
         """
         self.index_name = index_name
         self.embeddings = SentenceTransformer('all-MiniLM-L6-v2')
-        # self.embeddings = OpenAIEmbeddings(model="text-embedding-3-small", api_key=openai_api_key)
         self.dimension = 384
 
         self.pc = Pinecone(api_key = pinecone_api_key)
@@ -61,7 +59,7 @@ class PineconeEpisodeStore:
         title, summary = self._trim_text(episode.get('title', ''), episode.get('summary', ''))
         return f"Title: {title}\n\nSummary: {summary}"
     
-    def embed_and_store_episodes(self, episodes: List[Dict[str, Any]], batch_size: int = 100):
+    def embed_and_store_episodes(self, episodes: List[Dict[str, Any]], chat_id: str, batch_size: int = 100):
         """
         Convert a list of episodes into embeddings and upsert them into Pinecone storage
 
@@ -102,7 +100,8 @@ class PineconeEpisodeStore:
                     "title": episode["title"],
                     "summary": episode["summary"],
                     "published": episode["published"],
-                    "audioUrl": episode["audioUrl"]
+                    "audioUrl": episode["audioUrl"],
+                    'chat_id': chat_id
                 }
             })
         
@@ -122,14 +121,14 @@ class PineconeEpisodeStore:
             List[Dict[str, Any]]: list of all potential episodes that might match user query. 
         """
         query_embedding = self.embeddings.encode([query], convert_to_tensor=False)[0].tolist()
-        query_filter = {"chat_id": {"$eq": chat_id}}
+        query_filter = {"chat_id": str(chat_id)}
         search_results = self.index.query(
             vector=query_embedding,
-            top_k=k,
+            top_k=100,
             include_metadata=True,
             filter=query_filter
         )
-
+        
         episodes = []
         for match in search_results.matches:
             episode = {
@@ -138,10 +137,12 @@ class PineconeEpisodeStore:
                 "summary": match.metadata["summary"],
                 "published": match.metadata.get("published", ""),
                 "audioUrl": match.metadata.get("audioUrl", ""),
+                "chat_id": match.metadata.get("chat_id", ""),
                 "score": match.score
             }
             episodes.append(episode)
-        return episodes
+        filtered_episodes = [episode for episode in episodes if episode.get('chat_id') == chat_id]
+        return filtered_episodes
     
     def delete_chat(self, chat_id: str):
         """"

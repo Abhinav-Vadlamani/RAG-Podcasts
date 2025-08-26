@@ -1,8 +1,10 @@
-import PineconeStore
+import TranscriptSearch
 from pydantic import BaseModel, Field
 import EpisodeSearch
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage
+from langchain_core.runnables import RunnableLambda, RunnablePassthrough
+from langchain_core.output_parsers import StrOutputParser
 from apple_catalog import search_shows, lookup_episodes
 from rss_processor import return_episode_items, return_podcast_summary
 import os
@@ -13,14 +15,8 @@ class Search_For_Episode(BaseModel):
     id: str = Field(description = "Episode ID")
     title: str = Field(description = "Episode title")
     summary: str = Field(description = "Episode summary")
+    audio_url: str = Field(description = "Episode adio url")
 
-class TranscriptSearch(BaseModel):
-    id: str = Field(description = "Transcript ID")
-    transcript_content: str = Field(description = "Transcript contents")
-    duration: float = Field(description="Duration of transcript")
-    end_time: float = Field(description="End time of transcript")
-    start_time: float = Field(description="Start time of transcript")
-    episode_name: str = Field(description="Name of episode")
 class Prompts:
     def __init__(self, openai_key: str, pinecone_key: str):
         """
@@ -32,14 +28,14 @@ class Prompts:
         """
         os.environ['TOKENIZERS_PARALLELISM'] = "false"
         self.episode_store = EpisodeSearch.PineconeEpisodeStore(pinecone_api_key=pinecone_key)
-        self.transcript_store = PineconeStore.PineconeStore(pinecone_api_key=pinecone_key)
+        self.transcript_store = TranscriptSearch.PineconeStore(pinecone_api_key=pinecone_key)
         self.model = ChatOpenAI(
             model="gpt-4o-mini",
             temperature=0,
             api_key=openai_key,
             max_tokens = 500
         )
-    # TBD
+    
     def return_search_or_query(self, query: str):
         """
         Given a query, returns whether it is a search or a query
@@ -118,6 +114,8 @@ class Prompts:
         """
         try:
             top_episodes = self.episode_store.query_episodes(query=query, chat_id=chat_id)
+            if top_episodes == []:
+                return None
 
             episodes_text_for_prompt = []
             for i, episode in enumerate(top_episodes, 1):
@@ -125,6 +123,7 @@ class Prompts:
                     f"{i}. ID: {episode.get('id', "")}\n"
                     f"     Title: {episode.get('title', "")}\n"
                     f"     Summary: {episode.get('summary', "")}\n"
+                    f"     Audio URL: {episode.get('audioUrl', "")}\n"
                 )
 
             prompt = f"""Given the user query: {query}
@@ -138,8 +137,8 @@ class Prompts:
                 2. How well the episode content matches what the user is looking for
                 3. The quality and specificity of the match
 
-                Return ONLY the ID, title, and summary of the BEST matching episode."""
-            
+                Return ONLY the ID, title, summary, and audio url of the BEST matching episode."""
+
             structured_llm = self.model.with_structured_output(Search_For_Episode)
             return structured_llm.invoke(prompt)
 
@@ -160,6 +159,8 @@ class Prompts:
 
         try:
             result = self.transcript_store.query_podcast(question=query, chat_id=chat_id, top_k=2)
+            if result.get('results_count') == 0:
+                return None
             results = sorted(result.get('results'), key=lambda x:x['score'])
             sorted_results = results[0]
             output = {
@@ -173,3 +174,59 @@ class Prompts:
             return output
         except Exception as e:
             raise Exception(f"Failure to find relevant transcript: {str(e)}")
+        
+    def _format_prompt(self, data_dict):
+        chat_history = ""
+        if "past_messages" in data_dict and data_dict["past_messages"]:
+            chat_history = "\nPrevious conversations:\n"
+            for message in data_dict['past_messages']:
+                if not isinstance(message['content'], list) and 'isSearch' not in message:
+                    prefix = "Human: " if message['type'] == 'question' else 'Assistant: '
+                    chat_history += f"{prefix}{message['content']}\n"
+
+        messages = []
+        messages.append( {
+            "type": "text",
+            "text": (
+                f"You are analyzing a podcast episode. Here is the relevant context and question:\n\n"
+                f"Transcript excerpt:\n{' '.join(data_dict['context']['texts'])}\n\n"
+                f"{chat_history}\n"
+                f"Current question: {data_dict['question']}\n\n"
+                f"Please answer the current question based on the podcast episode content and previous conversation context."
+            )
+        })
+
+        return [HumanMessage(content=messages)]
+
+    def query_prompt(self, query, chat_id, chats):
+        try:
+            transcript_info = self.return_relevant_transcript(query=query, chat_id=chat_id)
+            context = {"texts": transcript_info.get('content')}
+
+            past_messages = []
+            if chat_id in chats:
+                chat = chats[chat_id]
+                past_messages = chat.messages if chat else []
+            
+            chain = (
+                {
+                    'context': lambda _: context,
+                    'question': RunnablePassthrough(),
+                    'past_messages': lambda _: past_messages
+                }
+                | RunnableLambda(self._format_prompt)
+                | self.model
+                | StrOutputParser()
+            )
+
+            response = chain.invoke(query)
+
+            return {
+                'answer': response,
+                'context': {
+                    'text': transcript_info.get('content')
+                }
+            }
+
+        except Exception as e:
+            raise Exception(f"Failure to query: {str(e)}")
