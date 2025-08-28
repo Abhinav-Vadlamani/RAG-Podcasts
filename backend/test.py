@@ -2,6 +2,7 @@ import asyncio
 import transcribe
 from dotenv import load_dotenv
 import os
+from uuid import uuid4
 import TranscriptSearch
 import EpisodeSearch
 from rss_processor import return_episode_items
@@ -39,7 +40,7 @@ episode_store = EpisodeSearch.PineconeEpisodeStore(
 print()
 print()
 print("attempting to store")
-chat_id = "testing_joe_rogan"
+chat_id = str(uuid4())
 store_result = store.store_podcast_information(
     transcript_chunks=transcript_chunks,
     podcast_metadata=podcast_metadata,
@@ -68,15 +69,22 @@ output = {
     'episode_name': desired_result.get('metadata').get('episode_name')
 }
 
-print()
-print()
-print()
-print(output)
+# print()
+# print()
+# print()
+# print(output)
+
+
 
 # print()
 # print()
 # print()
-# print(prompting_object.return_relevant_transcript(query='What do they talk about in the first minute?', chat_id='gay'))
+# print(prompting_object.return_relevant_transcript(query='What to they talk about in the first minute?', chat_id=chat_id))
+
+# print()
+# print()
+# print()
+# print(prompting_object.query_prompt(query="What do they talk about Iran?", chat_id=chat_id, chats={}))
 
 # feedUrl = "https://feeds.buzzsprout.com/2170846.rss"
 # episodes = return_episode_items(feedUrl)

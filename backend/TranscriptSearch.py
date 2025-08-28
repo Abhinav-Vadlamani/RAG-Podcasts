@@ -261,13 +261,12 @@ class PineconeStore:
         """
         try:
             question_embedding = self._generate_text_embedding(text=question)
-            query_filter = {"chat_id" : {"$eq": chat_id}}
+            # query_filter = {"chat_id" : {"$eq": chat_id}}
 
             results = self.index.query(
                 vector=question_embedding,
                 top_k = top_k,
                 include_metadata=True,
-                filter=query_filter
             )
             processed_results = []
             for match in results['matches']:
@@ -278,12 +277,22 @@ class PineconeStore:
                     "type": match['metadata']['type'],
                     "metadata": match['metadata']
                 })
-            
+            print("====Processed 1======")
+            output = [result for result in processed_results if result.get('metadata').get('chat_id') == chat_id]
+            print()
+            print()
+            print()
+            print(output)
+            print()
+            print()
+            print()
+            print("====Processed 1======")
+            print(len(output))
             return {
                 "status": "success",
                 "question": question,
-                "results_count": len(processed_results),
-                "results": processed_results
+                "results_count": len(output),
+                "results": output
             }
             
         except Exception as e:

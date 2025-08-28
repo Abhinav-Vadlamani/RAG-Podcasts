@@ -49,10 +49,9 @@ def list_chats():
     """
     Return all chats
     """
-    data = request.get_json()
-    if not data or 'username' not in data:
+    username = request.args.get('username')
+    if not username:
         return jsonify({'error': 'Username not in data'}), 400
-    username = data['username']
 
     return jsonify([{
         'id': chat.id,
@@ -80,6 +79,7 @@ def create_chat():
         'title': chat.title,
         'created_at': chat.created_at.isoformat(),
         'updated_at': chat.updated_at.isoformat(),
+        'all_messages': [],
         'username': chat.username
     })
 
@@ -100,7 +100,7 @@ def get_chat(chat_id):
             'feed_url': chat.feed_url,
             'created_at': chat.created_at.isoformat(),
             'updated_at': chat.updated_at.isoformat(),
-            'messages': chat.messages
+            'all_messages': chat.messages
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -169,7 +169,7 @@ def process_episode():
     try:
         data = request.get_json()
         if not data or 'audio_url' not in data or 'chat_id' not in data or 'episode_title' not in data:
-            return jsonify({"error": 'Missing audio url, chat id, or podcast title'}), 400
+            return jsonify({"error": 'Missing audio url, chat id, or episode title'}), 400
         
         chat = chats.get(data['chat_id'])
         if not chat:
@@ -184,6 +184,7 @@ def process_episode():
         }
 
         transcript = asyncio.run(transcribe_url(file_path=audio_url))
+        print('finished transcribing')
 
         store_result = transcript_store.store_podcast_information(transcript_chunks=transcript, podcast_metadata=metadata, chat_id=chat_id)
         return jsonify(store_result)
@@ -218,15 +219,18 @@ def query():
                 'timestamp': datetime.utcnow().isoformat()
             })
 
+            output_message = f"Successfully processed episode: {output['title']} with audio url: {output['audio url']}. Please enter your query."
+
             chat.messages.append({
                 'type': 'answer',
-                'content': output,
+                'content': output_message,
                 'timestamp': datetime.utcnow().isoformat()
             })
 
             return jsonify({
                 'type': 'search',
-                'results': output
+                'results': output,
+                'message': output_message
             })
         
         # query through episode content
@@ -267,8 +271,10 @@ def delete_chat(chat_id):
         if not chat:
             return jsonify({'error': 'Chat not found'}), 404
         
-        episode_store.delete_chat(chat_id=chat_id)
-        transcript_store.delete_chat(chat_id=chat_id)
+        # episode_store.delete_chat(chat_id=chat_id)
+        # transcript_store.delete_chat(chat_id=chat_id)
+
+        del chats[chat_id]
 
         return jsonify({
             'status': 'success'

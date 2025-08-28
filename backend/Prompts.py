@@ -158,11 +158,14 @@ class Prompts:
         """
 
         try:
-            result = self.transcript_store.query_podcast(question=query, chat_id=chat_id, top_k=2)
+            result = self.transcript_store.query_podcast(question=query, chat_id=chat_id, top_k=10)
+            print("====Processed 2======")
             if result.get('results_count') == 0:
                 return None
+            print("====Processed 3======")
             results = sorted(result.get('results'), key=lambda x:x['score'])
             sorted_results = results[0]
+            print("====Processed 4======")
             output = {
                 'id': sorted_results.get('id'),
                 'content': sorted_results.get('content'),
@@ -200,8 +203,13 @@ class Prompts:
 
     def query_prompt(self, query, chat_id, chats):
         try:
+            print("====Processed 5======")
             transcript_info = self.return_relevant_transcript(query=query, chat_id=chat_id)
-            context = {"texts": transcript_info.get('content')}
+            print("====Processed 6======")
+            context = {"texts": transcript_info.get('content') if transcript_info else chats[chat_id].podcast_title}
+            print()
+            print()
+            print(context)
 
             past_messages = []
             if chat_id in chats:
@@ -224,9 +232,9 @@ class Prompts:
             return {
                 'answer': response,
                 'context': {
-                    'text': transcript_info.get('content')
+                    'text': context.get('texts')
                 }
             }
-
+        
         except Exception as e:
             raise Exception(f"Failure to query: {str(e)}")
