@@ -277,7 +277,6 @@ class PineconeStore:
                     "type": match['metadata']['type'],
                     "metadata": match['metadata']
                 })
-            print("====Processed 1======")
             output = [result for result in processed_results if result.get('metadata').get('chat_id') == chat_id]
             print()
             print()
@@ -286,8 +285,6 @@ class PineconeStore:
             print()
             print()
             print()
-            print("====Processed 1======")
-            print(len(output))
             return {
                 "status": "success",
                 "question": question,

@@ -159,13 +159,10 @@ class Prompts:
 
         try:
             result = self.transcript_store.query_podcast(question=query, chat_id=chat_id, top_k=10)
-            print("====Processed 2======")
             if result.get('results_count') == 0:
                 return None
-            print("====Processed 3======")
             results = sorted(result.get('results'), key=lambda x:x['score'])
             sorted_results = results[0]
-            print("====Processed 4======")
             output = {
                 'id': sorted_results.get('id'),
                 'content': sorted_results.get('content'),
@@ -203,9 +200,7 @@ class Prompts:
 
     def query_prompt(self, query, chat_id, chats):
         try:
-            print("====Processed 5======")
             transcript_info = self.return_relevant_transcript(query=query, chat_id=chat_id)
-            print("====Processed 6======")
             context = {"texts": transcript_info.get('content') if transcript_info else chats[chat_id].podcast_title}
             print()
             print()

@@ -219,7 +219,7 @@ def query():
                 'timestamp': datetime.utcnow().isoformat()
             })
 
-            output_message = f"Successfully processed episode: {output['title']} with audio url: {output['audio url']}. Please enter your query."
+            output_message = f"Successfully processed episode: {output['title']} with audio url: {output['audio_url']}. Please enter your query."
 
             chat.messages.append({
                 'type': 'answer',
