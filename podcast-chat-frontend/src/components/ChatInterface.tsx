@@ -113,10 +113,16 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
                     href={episode.audio_url} 
                     target="_blank" 
                     rel="noopener noreferrer" 
-                    className="text-[14px] text-blue-600 hover:text-blue-800 hover:underline break-all font-medium transition-colors"
+                    className="inline-flex items-center gap-2 text-[14px] text-blue-600 hover:text-blue-800 hover:underline font-medium transition-colors bg-blue-50 hover:bg-blue-100 px-3 py-2 rounded-lg border border-blue-200"
                   >
-                    {episode.audio_url}
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                      <polyline points="15,3 21,3 21,9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                      <line x1="10" y1="14" x2="21" y2="3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                    <span className="break-all">Open Audio File</span>
                   </a>
+                  <div className="text-xs text-gray-500 mt-1 break-all font-mono">{episode.audio_url}</div>
                 </div>
                 {episode.summary && (
                   <div>
