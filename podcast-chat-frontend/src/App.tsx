@@ -4,8 +4,9 @@ import UsernameInput from './components/UsernameInput';
 import Sidebar from './components/Sidebar';
 import ChatInterface from './components/ChatInterface';
 import PodcastQueryModal from './components/PodcastQueryModal';
+import RateLimitModal from './components/RateLimitModal';
 import { apiService } from './services/api';
-import { Chat, Podcast, Episode } from './types';
+import { Chat, Podcast } from './types';
 
 function App() {
   const [username, setUsername] = useState<string | null>(null);
@@ -18,10 +19,17 @@ function App() {
   const [modalPodcasts, setModalPodcasts] = useState<Podcast[]>([]);
   const [showPodcastResults, setShowPodcastResults] = useState(false);
   const [chatLoading, setChatLoading] = useState(false);
-  const [processingEpisode, setProcessingEpisode] = useState(false);
   const [pendingResponse, setPendingResponse] = useState<string>('');
   const [showTypingAnimation, setShowTypingAnimation] = useState(false);
+  const [loadingEpisodeForIndex, setLoadingEpisodeForIndex] = useState<number | null>(null);
   const [pendingChatId, setPendingChatId] = useState<string | null>(null);
+  const [showRateLimitModal, setShowRateLimitModal] = useState(false);
+
+  const handleError = (error: unknown) => {
+    if (error && typeof error === 'object' && 'isRateLimit' in error) {
+      setShowRateLimitModal(true);
+    }
+  };
 
   // Load chats when username is set
   useEffect(() => {
@@ -47,7 +55,7 @@ function App() {
     if (!username) return;
     
     try {
-      const chatList = await apiService.getChats(username);
+      const chatList = await apiService.getChats();
       setChats(chatList);
     } catch (error) {
       console.error('Failed to load chats:', error);
@@ -99,7 +107,7 @@ function App() {
     setModalError(null);
 
     try {
-      const response = await apiService.queryPodcasts(query, pendingChatId);
+      const response = await apiService.queryPodcasts(query, pendingChatId!);
       const podcasts: Podcast[] = [];
       
       // Extract non-null podcasts
@@ -113,6 +121,7 @@ function App() {
       setModalPodcasts(podcasts);
       setShowPodcastResults(true);
     } catch (error) {
+      handleError(error);
       setModalError(error instanceof Error ? error.message : 'Failed to search podcasts');
     } finally {
       setModalLoading(false);
@@ -160,77 +169,37 @@ function App() {
 
   const handleSendMessage = async (message: string) => {
     if (!selectedChatId) return;
-
     setChatLoading(true);
     try {
-      const response = await apiService.sendQuery(message, selectedChatId);
-      console.log('API response:', response);
-      
-      // Refresh chat to show the user's question and response
+      await apiService.sendQuery(message, selectedChatId);
       await loadSelectedChat();
-      
-      if (response.type === 'search' && response.results) {
-        // Episode found, automatically process it
-        console.log('Episode search result:', response.results);
-        
-        // Wait a moment for the user to see the episode info
-        setTimeout(async () => {
-          try {
-            setProcessingEpisode(true);
-            await apiService.processEpisode(
-              response.results.audio_url,
-              selectedChatId,
-              response.results.title
-            );
-            
-            // Refresh chat to show processing result
-            await loadSelectedChat();
-          } catch (error) {
-            console.error('Failed to auto-process episode:', error);
-          } finally {
-            setChatLoading(false);
-            setProcessingEpisode(false);
-          }
-        }, 1500);
-        
-      } else if (response.type === 'query') {
-        // Regular query response
-        console.log('Regular query response received');
-        setChatLoading(false);
-      } else {
-        console.log('Unknown response type:', response);
-        setChatLoading(false);
-      }
     } catch (error) {
       console.error('Failed to send message:', error);
-      // Show error message in chat
-      if (selectedChat) {
-        const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-        // You could add error message to chat here if needed
-        alert(`Error: ${errorMessage}`);
-      }
-      setChatLoading(false);
-    }
-  };
-
-  const handleProcessEpisode = async (episode: Episode) => {
-    if (!selectedChatId) return;
-
-    setChatLoading(true);
-    try {
-      await apiService.processEpisode(
-        episode.audio_url,
-        selectedChatId,
-        episode.title
-      );
-      
-      await loadSelectedChat();
-    } catch (error) {
-      console.error('Failed to process episode:', error);
+      handleError(error);
     } finally {
       setChatLoading(false);
     }
   };
+
+  const handleLoadAndAnswer = async (
+    audioUrl: string,
+    episodeTitle: string,
+    originalQuestion: string,
+    messageIndex: number
+  ) => {
+    if (!selectedChatId) return;
+    setLoadingEpisodeForIndex(messageIndex);
+    try {
+      await apiService.loadAndAnswer(audioUrl, selectedChatId, episodeTitle, originalQuestion);
+      await loadSelectedChat();
+    } catch (error) {
+      console.error('Failed to load and answer:', error);
+      handleError(error);
+    } finally {
+      setLoadingEpisodeForIndex(null);
+    }
+  };
+
 
   const handleUpdateChatTitle = async (chatId: string, title: string) => {
     try {
@@ -287,25 +256,32 @@ function App() {
   }
 
   return (
-    <div className="flex h-screen bg-gray-100">
+    <div style={{ display: 'flex', height: '100vh', background: 'var(--bg-page)' }}>
       <Sidebar
         chats={chats}
         selectedChatId={selectedChatId}
         onChatSelect={handleChatSelect}
         onNewChat={handleNewChat}
+        onDeleteChat={handleDeleteChat}
+        onRenameChat={handleUpdateChatTitle}
       />
       
       <ChatInterface
         chat={selectedChat}
         onSendMessage={handleSendMessage}
         loading={chatLoading}
-        processingEpisode={processingEpisode}
-        onProcessEpisode={handleProcessEpisode}
+        onLoadAndAnswer={handleLoadAndAnswer}
+        loadingEpisodeForIndex={loadingEpisodeForIndex}
         onUpdateChatTitle={handleUpdateChatTitle}
         onDeleteChat={handleDeleteChat}
         pendingResponse={pendingResponse}
         showTypingAnimation={showTypingAnimation}
         onTypingComplete={handleTypingComplete}
+      />
+
+      <RateLimitModal
+        isOpen={showRateLimitModal}
+        onClose={() => setShowRateLimitModal(false)}
       />
 
       <PodcastQueryModal

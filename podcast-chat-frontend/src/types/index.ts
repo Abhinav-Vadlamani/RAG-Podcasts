@@ -17,6 +17,10 @@ export interface Message {
   content: string | any;
   timestamp: string;
   isSearch?: boolean;
+  needsLoad?: boolean;
+  episodeData?: { title: string; audio_url: string; summary: string };
+  originalQuestion?: string;
+  loadedEpisode?: string;
 }
 
 export interface Podcast {

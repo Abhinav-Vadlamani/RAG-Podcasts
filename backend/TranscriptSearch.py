@@ -261,30 +261,23 @@ class PineconeStore:
         """
         try:
             question_embedding = self._generate_text_embedding(text=question)
-            # query_filter = {"chat_id" : {"$eq": chat_id}}
+            query_filter = {"chat_id": {"$eq": chat_id}}
 
             results = self.index.query(
                 vector=question_embedding,
-                top_k = top_k,
+                top_k=top_k,
                 include_metadata=True,
+                filter=query_filter,
             )
-            processed_results = []
+            output = []
             for match in results['matches']:
-                processed_results.append({
+                output.append({
                     "id": match['id'],
                     "score": match['score'],
                     "content": match['metadata']['content'],
                     "type": match['metadata']['type'],
                     "metadata": match['metadata']
                 })
-            output = [result for result in processed_results if result.get('metadata').get('chat_id') == chat_id]
-            print()
-            print()
-            print()
-            print(output)
-            print()
-            print()
-            print()
             return {
                 "status": "success",
                 "question": question,
@@ -295,6 +288,23 @@ class PineconeStore:
         except Exception as e:
             raise Exception(f"Error querying podcast content: {str(e)}")
         
+    def has_transcripts(self, chat_id: str) -> bool:
+        """
+        Returns True if any transcript chunks exist in Pinecone for this chat.
+        Used to decide whether to attempt a QUERY before falling back to SEARCH.
+        """
+        try:
+            embedding = self._generate_text_embedding("test")
+            results = self.index.query(
+                vector=embedding,
+                top_k=1,
+                include_metadata=False,
+                filter={"chat_id": {"$eq": chat_id}}
+            )
+            return len(results['matches']) > 0
+        except Exception:
+            return False
+
     def delete_chat(self, chat_id: str):
         """"
         Delete chat given pinecone id

@@ -1,4 +1,3 @@
-// components/TypingMessage.tsx
 import React, { useState, useEffect } from 'react';
 
 interface TypingMessageProps {
@@ -7,21 +6,16 @@ interface TypingMessageProps {
   speed?: number;
 }
 
-const TypingMessage: React.FC<TypingMessageProps> = ({ 
-  text, 
-  onComplete, 
-  speed = 30 
-}) => {
+const TypingMessage: React.FC<TypingMessageProps> = ({ text, onComplete, speed = 30 }) => {
   const [displayedText, setDisplayedText] = useState('');
   const [isComplete, setIsComplete] = useState(false);
 
   useEffect(() => {
     if (!text) return;
-
     let currentIndex = 0;
     setDisplayedText('');
     setIsComplete(false);
-    
+
     const interval = setInterval(() => {
       if (currentIndex < text.length) {
         setDisplayedText(text.slice(0, currentIndex + 1));
@@ -29,9 +23,7 @@ const TypingMessage: React.FC<TypingMessageProps> = ({
       } else {
         clearInterval(interval);
         setIsComplete(true);
-        setTimeout(() => {
-          onComplete?.();
-        }, 500); // Wait 500ms after typing completes
+        setTimeout(() => onComplete?.(), 500);
       }
     }, speed);
 
@@ -39,21 +31,72 @@ const TypingMessage: React.FC<TypingMessageProps> = ({
   }, [text, speed, onComplete]);
 
   return (
-    <div className="flex justify-start mb-6">
-      <div className="bg-gradient-to-br from-gray-50 via-slate-50 to-gray-100 px-6 py-5 rounded-3xl rounded-tl-lg max-w-xs lg:max-w-3xl shadow-lg border border-gray-200">
-        <div className="flex items-start gap-3">
-          <div className="w-8 h-8 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center flex-shrink-0 mt-1">
-            <div className="w-2 h-2 bg-white rounded-full"></div>
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="text-[15px] text-gray-800 leading-relaxed font-medium whitespace-pre-wrap">
-              {displayedText}
-              {!isComplete && (
-                <span className="inline-block w-0.5 h-5 bg-blue-500 ml-1 animate-pulse"></span>
-              )}
-            </div>
-          </div>
+    <div style={{ marginBottom: 20 }}>
+      {/* Byline */}
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
+        marginBottom: 8,
+      }}>
+        <div style={{
+          width: 20,
+          height: 20,
+          background: 'var(--text-primary)',
+          borderRadius: '50%',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}>
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+            <rect x="0.5" y="3.5" width="1.5" height="3" rx="0.75" fill="#faf6ef" />
+            <rect x="3"   y="2"   width="1.5" height="6" rx="0.75" fill="#faf6ef" />
+            <rect x="5.5" y="0.5" width="1.5" height="9" rx="0.75" fill="#faf6ef" />
+            <rect x="8"   y="2.5" width="1.5" height="5" rx="0.75" fill="#faf6ef" />
+          </svg>
         </div>
+        <span style={{
+          fontFamily: 'var(--font-display)',
+          fontSize: 11,
+          fontWeight: 600,
+          letterSpacing: '0.1em',
+          color: 'var(--text-muted)',
+          textTransform: 'uppercase',
+        }}>
+          Frequency
+        </span>
+      </div>
+
+      {/* Body */}
+      <div style={{
+        background: 'var(--bg-elevated)',
+        border: '1px solid var(--border-subtle)',
+        borderRadius: 'var(--radius-lg)',
+        padding: '16px 20px',
+        maxWidth: 680,
+      }}>
+        <p style={{
+          fontFamily: 'var(--font-body)',
+          fontSize: 14.5,
+          color: 'var(--text-primary)',
+          lineHeight: 1.8,
+          margin: 0,
+          whiteSpace: 'pre-wrap',
+        }}>
+          {displayedText}
+          {!isComplete && (
+            <span style={{
+              display: 'inline-block',
+              width: 1.5,
+              height: 15,
+              background: 'var(--accent)',
+              marginLeft: 2,
+              verticalAlign: 'middle',
+              borderRadius: 1,
+              animation: 'blink 0.9s ease infinite',
+            }} />
+          )}
+        </p>
       </div>
     </div>
   );

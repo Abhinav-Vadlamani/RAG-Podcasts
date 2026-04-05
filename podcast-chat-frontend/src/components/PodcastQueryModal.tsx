@@ -1,6 +1,4 @@
-// components/PodcastQueryModal.tsx
 import React, { useState } from 'react';
-import { X, Search, ArrowLeft } from 'lucide-react';
 import { Podcast } from '../types';
 
 interface PodcastQueryModalProps {
@@ -15,6 +13,22 @@ interface PodcastQueryModalProps {
   onBack: () => void;
 }
 
+const XIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+    <path d="M11 3 3 11M3 3l8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+  </svg>
+);
+const BackIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+    <path d="M9 11 5 7l4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+);
+const SpinnerIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style={{ animation: 'spin 0.8s linear infinite' }}>
+    <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="2" strokeDasharray="28" strokeDashoffset="8" strokeLinecap="round" />
+  </svg>
+);
+
 const PodcastQueryModal: React.FC<PodcastQueryModalProps> = ({
   isOpen,
   onClose,
@@ -28,161 +42,464 @@ const PodcastQueryModal: React.FC<PodcastQueryModalProps> = ({
 }) => {
   const [query, setQuery] = useState('');
   const [selectedPodcast, setSelectedPodcast] = useState<Podcast | null>(null);
+  const [inputFocused, setInputFocused] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [confirming, setConfirming] = useState(false);
+
+  React.useEffect(() => {
+    if (!confirming) return;
+
+    if (!loading) {
+      setProgress(100);
+      setTimeout(() => { setConfirming(false); setProgress(0); }, 600);
+      return;
+    }
+
+    // Animate to 88% over ~18 seconds, then stall until loading finishes
+    const interval = setInterval(() => {
+      setProgress(prev => {
+        if (prev >= 88) { clearInterval(interval); return prev; }
+        return prev + 0.5;
+      });
+    }, 100);
+
+    return () => clearInterval(interval);
+  }, [confirming, loading]);
 
   if (!isOpen) return null;
 
-  console.log('Modal state:', { showResults, selectedPodcast, podcasts: podcasts.length, loading });
-
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (query.trim()) {
-      onQuery(query.trim());
-    }
+    if (query.trim()) onQuery(query.trim());
   };
 
-  const handlePodcastClick = (podcast: Podcast) => {
-    setSelectedPodcast(podcast);
-  };
-
+  const handleBack = () => { setSelectedPodcast(null); onBack(); };
+  const handleClose = () => { setSelectedPodcast(null); onClose(); };
   const handleConfirm = () => {
     if (selectedPodcast) {
+      setConfirming(true);
+      setProgress(0);
       onPodcastSelect(selectedPodcast);
     }
   };
 
-  const handleBack = () => {
-    setSelectedPodcast(null);
-    onBack();
-  };
-
-  const handleClose = () => {
-    setSelectedPodcast(null);
-    onClose();
-  };
-
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg w-full max-w-2xl max-h-[80vh] overflow-hidden">
-        <div className="flex items-center justify-between p-4 border-b">
-          <h2 className="text-xl font-semibold">
-            {showResults ? 'Select a Podcast' : 'Search for Podcasts'}
-          </h2>
+    <div
+      style={{
+        position: 'fixed',
+        inset: 0,
+        background: 'rgba(28, 23, 20, 0.55)',
+        backdropFilter: 'blur(4px)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 50,
+        padding: 24,
+      }}
+      onClick={e => { if (e.target === e.currentTarget) handleClose(); }}
+    >
+      <div
+        className="animate-fade-up"
+        style={{
+          background: 'var(--bg-page)',
+          border: '1px solid var(--border-medium)',
+          borderRadius: 'var(--radius-xl)',
+          width: '100%',
+          maxWidth: 560,
+          maxHeight: '86vh',
+          display: 'flex',
+          flexDirection: 'column',
+          boxShadow: 'var(--shadow-card)',
+          overflow: 'hidden',
+        }}
+      >
+        {/* Header */}
+        <div style={{
+          display: 'flex',
+          alignItems: 'flex-start',
+          justifyContent: 'space-between',
+          padding: '24px 28px 20px',
+          borderBottom: '1px solid var(--border-medium)',
+          flexShrink: 0,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            {showResults && (
+              <button
+                onClick={handleBack}
+                style={{
+                  padding: 6,
+                  background: 'transparent',
+                  border: '1px solid var(--border-medium)',
+                  borderRadius: 'var(--radius-sm)',
+                  cursor: 'pointer',
+                  color: 'var(--text-secondary)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  marginRight: 4,
+                }}
+              >
+                <BackIcon />
+              </button>
+            )}
+            <div>
+              <h2 style={{
+                fontFamily: 'var(--font-display)',
+                fontSize: 20,
+                fontWeight: 800,
+                fontStyle: 'italic',
+                color: 'var(--text-primary)',
+                margin: 0,
+              }}>
+                {showResults ? 'Choose a Podcast' : 'Find a Podcast'}
+              </h2>
+              <p style={{
+                fontFamily: 'var(--font-body)',
+                fontSize: 12,
+                fontStyle: 'italic',
+                color: 'var(--text-muted)',
+                margin: '3px 0 0',
+              }}>
+                {showResults
+                  ? `${podcasts.length} result${podcasts.length !== 1 ? 's' : ''} in the catalog`
+                  : 'Search by topic, host, or genre'}
+              </p>
+            </div>
+          </div>
           <button
             onClick={handleClose}
-            className="p-1 hover:bg-gray-100 rounded"
+            style={{
+              padding: 7,
+              background: 'transparent',
+              border: '1px solid var(--border-subtle)',
+              borderRadius: 'var(--radius-sm)',
+              cursor: 'pointer',
+              color: 'var(--text-muted)',
+              display: 'flex',
+              alignItems: 'center',
+              flexShrink: 0,
+              transition: 'color 0.15s, border-color 0.15s',
+            }}
+            onMouseEnter={e => { e.currentTarget.style.color = 'var(--text-primary)'; e.currentTarget.style.borderColor = 'var(--border-medium)'; }}
+            onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.borderColor = 'var(--border-subtle)'; }}
           >
-            <X size={20} />
+            <XIcon />
           </button>
         </div>
 
-        <div className="p-4">
+        {/* Body */}
+        <div style={{ flex: 1, overflowY: 'auto', padding: '22px 28px' }}>
           {!showResults ? (
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  What type of podcasts are you looking for?
-                </label>
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={16} />
-                  <input
-                    type="text"
-                    value={query}
-                    onChange={(e) => setQuery(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="e.g., technology, business, health..."
-                    required
-                    disabled={loading}
-                  />
-                </div>
-              </div>
+            <form onSubmit={handleSubmit}>
+              <label style={{
+                display: 'block',
+                fontFamily: 'var(--font-display)',
+                fontSize: 10,
+                fontWeight: 700,
+                letterSpacing: '0.18em',
+                color: 'var(--text-muted)',
+                textTransform: 'uppercase',
+                marginBottom: 10,
+              }}>
+                What are you looking for?
+              </label>
+              <input
+                type="text"
+                value={query}
+                onChange={e => setQuery(e.target.value)}
+                onFocus={() => setInputFocused(true)}
+                onBlur={() => setInputFocused(false)}
+                placeholder="e.g. technology, true crime, economics…"
+                required
+                disabled={loading}
+                style={{
+                  display: 'block',
+                  width: '100%',
+                  background: 'transparent',
+                  border: 'none',
+                  borderBottom: `2px solid ${inputFocused ? 'var(--accent)' : 'var(--border-strong)'}`,
+                  outline: 'none',
+                  fontFamily: 'var(--font-body)',
+                  fontSize: 17,
+                  fontStyle: 'italic',
+                  color: 'var(--text-primary)',
+                  padding: '8px 0',
+                  marginBottom: 28,
+                  transition: 'border-color 0.2s',
+                  borderRadius: 0,
+                  opacity: loading ? 0.5 : 1,
+                }}
+              />
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+                style={{
+                  width: '100%',
+                  background: loading ? 'var(--bg-elevated)' : 'var(--text-primary)',
+                  color: loading ? 'var(--text-muted)' : 'var(--bg-page)',
+                  border: 'none',
+                  borderRadius: 'var(--radius-sm)',
+                  padding: '13px 0',
+                  fontFamily: 'var(--font-display)',
+                  fontSize: 12,
+                  fontWeight: 700,
+                  letterSpacing: '0.12em',
+                  textTransform: 'uppercase',
+                  cursor: loading ? 'not-allowed' : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 8,
+                  transition: 'background 0.2s',
+                }}
+                onMouseEnter={e => { if (!loading) e.currentTarget.style.background = 'var(--accent)'; }}
+                onMouseLeave={e => { if (!loading) e.currentTarget.style.background = 'var(--text-primary)'; }}
               >
-                {loading ? 'Searching...' : 'Search Podcasts'}
+                {loading ? <><SpinnerIcon /> Searching the Catalog…</> : 'Search Podcasts'}
               </button>
             </form>
           ) : (
-            <div className="space-y-4">
-              <button
-                onClick={handleBack}
-                className="flex items-center gap-2 text-blue-600 hover:text-blue-700"
-              >
-                <ArrowLeft size={16} />
-                Back to search
-              </button>
-
+            <div>
               {podcasts.length === 0 ? (
-                <div className="text-center py-8 text-gray-500">
-                  No podcasts found. Try a different search query.
+                <div style={{ textAlign: 'center', padding: '36px 0' }}>
+                  <p style={{ fontFamily: 'var(--font-body)', fontSize: 14, fontStyle: 'italic', color: 'var(--text-secondary)', margin: 0 }}>
+                    No results found. Try a different query.
+                  </p>
                 </div>
               ) : (
-                <>
-                  <div className="space-y-3 max-h-96 overflow-y-auto">
-                    {podcasts.map((podcast, index) => (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {podcasts.map((podcast, index) => {
+                    const isSelected = selectedPodcast?.collectionId === podcast.collectionId;
+                    return (
                       <div
                         key={index}
-                        className={`border rounded-lg p-4 cursor-pointer transition-all ${
-                          selectedPodcast?.collectionId === podcast.collectionId
-                            ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-200'
-                            : 'border-gray-200 hover:bg-gray-50'
-                        }`}
-                        onClick={() => handlePodcastClick(podcast)}
+                        onClick={() => setSelectedPodcast(podcast)}
+                        style={{
+                          display: 'flex',
+                          gap: 14,
+                          alignItems: 'center',
+                          padding: '14px 16px',
+                          background: isSelected ? 'var(--bg-elevated)' : 'transparent',
+                          border: `1px solid ${isSelected ? 'var(--border-strong)' : 'var(--border-subtle)'}`,
+                          borderLeft: `3px solid ${isSelected ? 'var(--accent)' : 'transparent'}`,
+                          borderRadius: 'var(--radius-md)',
+                          cursor: 'pointer',
+                          transition: 'all 0.12s',
+                        }}
+                        onMouseEnter={e => {
+                          if (!isSelected) {
+                            e.currentTarget.style.background = 'var(--bg-elevated)';
+                            e.currentTarget.style.borderColor = 'var(--border-medium)';
+                          }
+                        }}
+                        onMouseLeave={e => {
+                          if (!isSelected) {
+                            e.currentTarget.style.background = 'transparent';
+                            e.currentTarget.style.borderColor = 'var(--border-subtle)';
+                          }
+                        }}
                       >
-                        <div className="flex gap-3">
-                          {podcast.artworkUrl600 && (
-                            <img
-                              src={podcast.artworkUrl600}
-                              alt={podcast.collectionName}
-                              className="w-16 h-16 rounded-lg object-cover flex-shrink-0"
-                            />
-                          )}
-                          <div className="flex-1 min-w-0">
-                            <h3 className="font-medium text-gray-900 truncate">
-                              {podcast.collectionName}
-                            </h3>
-                            <p className="text-sm text-gray-600 truncate">
-                              by {podcast.artistName}
-                            </p>
-                            <p className="text-sm text-gray-500 mt-1 line-clamp-2">
+                        {podcast.artworkUrl600 ? (
+                          <img
+                            src={podcast.artworkUrl600}
+                            alt={podcast.collectionName}
+                            style={{
+                              width: 56,
+                              height: 56,
+                              borderRadius: 'var(--radius-sm)',
+                              objectFit: 'cover',
+                              flexShrink: 0,
+                              border: '1px solid var(--border-subtle)',
+                            }}
+                          />
+                        ) : (
+                          <div style={{
+                            width: 56,
+                            height: 56,
+                            borderRadius: 'var(--radius-sm)',
+                            background: 'var(--bg-elevated)',
+                            border: '1px solid var(--border-subtle)',
+                            flexShrink: 0,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontFamily: 'var(--font-display)',
+                            fontSize: 20,
+                            fontStyle: 'italic',
+                            color: 'var(--text-muted)',
+                          }}>
+                            {podcast.collectionName[0]}
+                          </div>
+                        )}
+
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <h3 style={{
+                            fontFamily: 'var(--font-display)',
+                            fontSize: 14,
+                            fontWeight: 700,
+                            fontStyle: 'italic',
+                            color: isSelected ? 'var(--accent)' : 'var(--text-primary)',
+                            margin: '0 0 2px',
+                            whiteSpace: 'nowrap',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            transition: 'color 0.12s',
+                          }}>
+                            {podcast.collectionName}
+                          </h3>
+                          <p style={{
+                            fontFamily: 'var(--font-body)',
+                            fontSize: 12,
+                            color: 'var(--text-secondary)',
+                            margin: '0 0 4px',
+                          }}>
+                            {podcast.artistName}
+                          </p>
+                          {podcast.summary && (
+                            <p className="line-clamp-2" style={{
+                              fontFamily: 'var(--font-body)',
+                              fontSize: 12,
+                              fontStyle: 'italic',
+                              color: 'var(--text-muted)',
+                              margin: 0,
+                              lineHeight: 1.5,
+                            }}>
                               {podcast.summary}
                             </p>
-                          </div>
-                          {selectedPodcast?.collectionId === podcast.collectionId && (
-                            <div className="flex-shrink-0 flex items-center">
-                              <div className="w-5 h-5 bg-blue-600 rounded-full flex items-center justify-center">
-                                <div className="w-2 h-2 bg-white rounded-full"></div>
-                              </div>
-                            </div>
                           )}
                         </div>
+
+                        {isSelected && (
+                          <div style={{
+                            width: 20,
+                            height: 20,
+                            borderRadius: '50%',
+                            background: 'var(--accent)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            flexShrink: 0,
+                            color: '#faf6ef',
+                          }}>
+                            <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                              <path d="M1.5 5l2.5 2.5 4.5-5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
+                          </div>
+                        )}
                       </div>
-                    ))}
-                  </div>
-                  
-                  {selectedPodcast && (
-                    <div className="flex gap-3 pt-4 border-t">
-                      <button
-                        onClick={handleConfirm}
-                        disabled={loading}
-                        className="flex-1 bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
-                      >
-                        {loading ? 'Processing...' : 'Confirm Selection'}
-                      </button>
-                    </div>
-                  )}
-                </>
+                    );
+                  })}
+                </div>
               )}
             </div>
           )}
 
           {error && (
-            <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700">
+            <div style={{
+              marginTop: 16,
+              padding: '12px 16px',
+              background: 'rgba(140,50,68,0.07)',
+              border: '1px solid var(--accent-border)',
+              borderRadius: 'var(--radius-md)',
+              fontFamily: 'var(--font-body)',
+              fontSize: 13,
+              fontStyle: 'italic',
+              color: 'var(--accent)',
+              lineHeight: 1.5,
+            }}>
               {error}
             </div>
           )}
         </div>
+
+        {/* Confirm footer */}
+        {showResults && selectedPodcast && (
+          <div style={{
+            padding: '16px 28px',
+            borderTop: '1px solid var(--border-medium)',
+            flexShrink: 0,
+          }}>
+            {confirming ? (
+              /* Progress bar */
+              <div>
+                <div style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  marginBottom: 8,
+                }}>
+                  <span style={{
+                    fontFamily: 'var(--font-display)',
+                    fontSize: 11,
+                    fontWeight: 700,
+                    letterSpacing: '0.12em',
+                    textTransform: 'uppercase',
+                    color: 'var(--text-secondary)',
+                  }}>
+                    {progress < 100 ? 'Indexing episodes…' : 'Done'}
+                  </span>
+                  <span style={{
+                    fontFamily: 'var(--font-display)',
+                    fontSize: 11,
+                    fontWeight: 700,
+                    color: 'var(--accent)',
+                  }}>
+                    {Math.round(progress)}%
+                  </span>
+                </div>
+                <div style={{
+                  width: '100%',
+                  height: 6,
+                  background: 'var(--bg-elevated)',
+                  borderRadius: 3,
+                  overflow: 'hidden',
+                  border: '1px solid var(--border-subtle)',
+                }}>
+                  <div style={{
+                    height: '100%',
+                    width: `${progress}%`,
+                    background: progress < 100 ? 'var(--accent)' : '#22c55e',
+                    borderRadius: 3,
+                    transition: 'width 0.1s linear, background 0.3s',
+                  }} />
+                </div>
+                <p style={{
+                  fontFamily: 'var(--font-body)',
+                  fontSize: 11,
+                  fontStyle: 'italic',
+                  color: 'var(--text-muted)',
+                  margin: '8px 0 0',
+                  textAlign: 'center',
+                }}>
+                  Fetching and embedding episode metadata — this may take a moment.
+                </p>
+              </div>
+            ) : (
+              <button
+                onClick={handleConfirm}
+                disabled={loading}
+                style={{
+                  width: '100%',
+                  background: 'var(--text-primary)',
+                  color: 'var(--bg-page)',
+                  border: 'none',
+                  borderRadius: 'var(--radius-sm)',
+                  padding: '13px 0',
+                  fontFamily: 'var(--font-display)',
+                  fontSize: 12,
+                  fontWeight: 700,
+                  letterSpacing: '0.12em',
+                  textTransform: 'uppercase',
+                  cursor: 'pointer',
+                  transition: 'background 0.2s',
+                }}
+                onMouseEnter={e => { e.currentTarget.style.background = 'var(--accent)'; }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'var(--text-primary)'; }}
+              >
+                Confirm — {selectedPodcast.collectionName}
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

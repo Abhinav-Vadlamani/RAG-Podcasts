@@ -36,29 +36,51 @@ class Prompts:
             max_tokens = 500
         )
     
-    def return_search_or_query(self, query: str):
+    def return_search_or_query(self, query: str, loaded_episodes: list = []):
         """
-        Given a query, returns whether it is a search or a query
+        Given a query, returns whether it is a search or a query.
 
         Args:
             query (str): user query
-        
+            loaded_episodes (list): episode titles already transcribed for this chat
+
         Returns
             str: SEARCH or QUERY based on model output
         """
+        loaded_section = ""
+        if loaded_episodes:
+            loaded_list = "\n".join(f"- {ep}" for ep in loaded_episodes)
+            loaded_section = f"""
+        The following episodes have already been fully transcribed and are available for deep querying:
+        {loaded_list}
+
+        If the user's question is clearly about one of these loaded episodes, return QUERY.
+        If the user's question is about a DIFFERENT episode not in this list, return SEARCH.
+        """
+
         prompt = f"""
         Analyze the following query: {query}
-        Is this a request to search for a Podcast episode or a question about a podcast video content.
+        {loaded_section}
+        Classify it as either SEARCH or QUERY using these rules:
 
-        Return only either "SEARCH" or "QUERY" and nothing else as your response will be parsed by an algorithm.
-
+        SEARCH — the user is asking about a specific episode by name, number, or description
+        that has NOT been loaded yet, OR asking for a general overview of an unloaded episode.
         Examples:
-        - "find episodes about cooking" -> "SEARCH"
-        - "search for magic tutorials" -> "SEARCH"
-        - "look up episodes about basketball" -> "SEARCH"
-        - "what did they say about the impact of social media?" -> "QUERY"
-        - "can you explain the podcasts main points?" -> "QUERY"
-        - "what happened in this episode?" -> QUERY
+        - "find episodes about cooking" -> SEARCH
+        - "search for magic tutorials" -> SEARCH
+        - "what is episode 1 about" -> SEARCH (if episode 1 not in loaded list)
+        - "tell me about the latest episode" -> SEARCH (if not loaded)
+        - "give me a summary of episode 5" -> SEARCH (if episode 5 not loaded)
+
+        QUERY — the user is asking about content from an already-loaded episode,
+        OR asking a general question not tied to a specific unloaded episode.
+        Examples:
+        - "what did they say about the impact of social media?" -> QUERY
+        - "can you explain the podcasts main points?" -> QUERY
+        - "what was the guest's opinion on climate change?" -> QUERY
+        - "what is episode 1 about" -> QUERY (if episode 1 IS in the loaded list)
+
+        Return only "SEARCH" or "QUERY" and nothing else.
         """
 
         response = self.model.invoke([HumanMessage(content=prompt)])
@@ -145,6 +167,31 @@ class Prompts:
         except Exception as e:
             raise Exception(f"Failure to find episode: {str(e)}")
         
+    def answer_from_episode_metadata(self, query: str, episode: dict):
+        """
+        Answer a user question using only episode metadata (title + summary),
+        without needing a transcript.
+
+        Args:
+            query (str): user question
+            episode (dict): episode dict with title, summary, audioUrl etc.
+
+        Returns:
+            str: answer generated from episode metadata
+        """
+        prompt = f"""You are a helpful podcast assistant. Answer the user's question using only
+the episode metadata provided below. Do not make up information beyond what is given.
+If the metadata is insufficient to answer fully, say so and suggest the user load the episode
+for a deeper answer.
+
+Episode Title: {episode.get('title', 'Unknown')}
+Episode Summary: {episode.get('summary', 'No summary available')}
+
+User question: {query}"""
+
+        response = self.model.invoke([HumanMessage(content=prompt)])
+        return response.content.strip()
+
     def return_relevant_transcript(self, query: str, chat_id: str):
         """
         Returns the most relevant transcript
@@ -158,18 +205,20 @@ class Prompts:
         """
 
         try:
-            result = self.transcript_store.query_podcast(question=query, chat_id=chat_id, top_k=10)
+            result = self.transcript_store.query_podcast(question=query, chat_id=chat_id, top_k=20)
             if result.get('results_count') == 0:
                 return None
-            results = sorted(result.get('results'), key=lambda x:x['score'])
-            sorted_results = results[0]
+            results = sorted(result.get('results'), key=lambda x: x['score'], reverse=True)
+            # Combine top chunks into a single context string
+            combined_content = "\n\n".join(r.get('content', '') for r in results[:8])
+            best = results[0]
             output = {
-                'id': sorted_results.get('id'),
-                'content': sorted_results.get('content'),
-                'duration': sorted_results.get('metadata').get('duration'),
-                'end_time': sorted_results.get('metadata').get('end_time'),
-                'start_time': sorted_results.get('metadata').get('start_time'),
-                'episode_name': sorted_results.get('metadata').get('episode_name')
+                'id': best.get('id'),
+                'content': combined_content,
+                'duration': best.get('metadata').get('duration'),
+                'end_time': best.get('metadata').get('end_time'),
+                'start_time': best.get('metadata').get('start_time'),
+                'episode_name': best.get('metadata').get('episode_name')
             }
             return output
         except Exception as e:
@@ -188,11 +237,14 @@ class Prompts:
         messages.append( {
             "type": "text",
             "text": (
-                f"You are analyzing a podcast episode. Here is the relevant context and question:\n\n"
-                f"Transcript excerpt:\n{' '.join(data_dict['context']['texts'])}\n\n"
+                f"You are a helpful podcast assistant answering questions about podcast episodes.\n\n"
+                f"Below are transcript excerpts from the episode. Use them to answer the question as specifically and confidently as possible. "
+                f"Do not say you cannot determine the answer — synthesize what you have into a clear, direct response. "
+                f"If the excerpts are partial, still give your best answer based on what is available.\n\n"
+                f"Transcript excerpts:\n{data_dict['context']['texts']}\n\n"
                 f"{chat_history}\n"
                 f"Current question: {data_dict['question']}\n\n"
-                f"Please answer the current question based on the podcast episode content and previous conversation context."
+                f"Answer directly and specifically. Do not say 'it is difficult to determine' or 'listening to the episode would be necessary'."
             )
         })
 
@@ -201,10 +253,21 @@ class Prompts:
     def query_prompt(self, query, chat_id, chats):
         try:
             transcript_info = self.return_relevant_transcript(query=query, chat_id=chat_id)
-            context = {"texts": transcript_info.get('content') if transcript_info else chats[chat_id].podcast_title}
-            print()
-            print()
-            print(context)
+
+            if transcript_info:
+                context = {"texts": transcript_info.get('content')}
+            else:
+                # No transcript yet — fall back to episode metadata summaries
+                episodes = self.episode_store.query_episodes(query=query, chat_id=chat_id)
+                if episodes:
+                    episode_texts = []
+                    for ep in episodes[:5]:
+                        episode_texts.append(
+                            f"Episode: {ep.get('title', '')}\nSummary: {ep.get('summary', '')}"
+                        )
+                    context = {"texts": "\n\n".join(episode_texts)}
+                else:
+                    context = {"texts": chats[chat_id].podcast_title}
 
             past_messages = []
             if chat_id in chats:

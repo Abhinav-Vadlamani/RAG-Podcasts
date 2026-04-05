@@ -1,7 +1,7 @@
 // services/api.ts
 import { Chat, PodcastQueryResponse, QueryResponse } from '../types';
 
-const API_BASE_URL = 'http://127.0.0.1:5002/api';
+const API_BASE_URL = '/api';
 
 class ApiService {
   private async request<T>(
@@ -10,6 +10,7 @@ class ApiService {
   ): Promise<T> {
     const url = `${API_BASE_URL}${endpoint}`;
     const response = await fetch(url, {
+      credentials: 'include',
       headers: {
         'Content-Type': 'application/json',
         ...options.headers,
@@ -19,17 +20,42 @@ class ApiService {
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({}));
+      if (response.status === 429) {
+        const err = new Error('Rate limit exceeded') as Error & { isRateLimit: boolean };
+        err.isRateLimit = true;
+        throw err;
+      }
       throw new Error(error.error || `HTTP error! status: ${response.status}`);
     }
 
     return response.json();
   }
 
-  // Get all chats for a user
-  async getChats(username: string): Promise<Chat[]> {
-    return this.request<Chat[]>(`/chats?username=${encodeURIComponent(username)}`, {
-      method: 'GET',
+  async login(username: string, password: string): Promise<{ status: string; username: string }> {
+    return this.request('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ username, password }),
     });
+  }
+
+  async register(username: string, password: string): Promise<{ status: string }> {
+    return this.request('/auth/register', {
+      method: 'POST',
+      body: JSON.stringify({ username, password }),
+    });
+  }
+
+  async logout(): Promise<void> {
+    return this.request('/auth/logout', { method: 'POST' });
+  }
+
+  async me(): Promise<{ id: number; username: string }> {
+    return this.request('/auth/me');
+  }
+
+  // Get all chats for a user
+  async getChats(): Promise<Chat[]> {
+    return this.request<Chat[]>('/chats', { method: 'GET' });
   }
 
   // Create a new chat
@@ -81,6 +107,23 @@ class ApiService {
         audio_url: audioUrl,
         chat_id: chatId,
         episode_title: episodeTitle,
+      }),
+    });
+  }
+
+  async loadAndAnswer(
+    audioUrl: string,
+    chatId: string,
+    episodeTitle: string,
+    originalQuestion: string
+  ): Promise<{ status: string; answer: string }> {
+    return this.request('/chats/load-and-answer', {
+      method: 'POST',
+      body: JSON.stringify({
+        audio_url: audioUrl,
+        chat_id: chatId,
+        episode_title: episodeTitle,
+        original_question: originalQuestion,
       }),
     });
   }

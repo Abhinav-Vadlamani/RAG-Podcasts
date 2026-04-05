@@ -1,15 +1,14 @@
-// components/ChatInterface.tsx
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Play, Edit2, Trash2, Check, X } from 'lucide-react';
 import { Chat, Message, Episode } from '../types';
 import TypingMessage from './TypingMessage';
+import ConfirmModal from './ConfirmModal';
 
 interface ChatInterfaceProps {
   chat: Chat | null;
   onSendMessage: (message: string) => Promise<void>;
   loading: boolean;
-  processingEpisode: boolean;
-  onProcessEpisode: (episode: Episode) => Promise<void>;
+  onLoadAndAnswer: (audioUrl: string, episodeTitle: string, originalQuestion: string, messageIndex: number) => Promise<void>;
+  loadingEpisodeForIndex: number | null;
   onUpdateChatTitle: (chatId: string, title: string) => Promise<void>;
   onDeleteChat: (chatId: string) => Promise<void>;
   pendingResponse?: string;
@@ -17,12 +16,124 @@ interface ChatInterfaceProps {
   onTypingComplete?: () => void;
 }
 
+const SendIcon = () => (
+  <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
+    <path d="M13.5 7.5L1.5 1.5l2.25 6L1.5 13.5l12-6Z" fill="currentColor" />
+  </svg>
+);
+const EditIcon = () => (
+  <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+    <path d="M9.25 1.625a1.148 1.148 0 0 1 1.625 1.625L3.75 10.375 1.625 10.916l.541-2.125L9.25 1.625Z"
+      stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+);
+const TrashIcon = () => (
+  <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+    <path d="M1.625 3.25h9.75M4.875 3.25V2.167a.542.542 0 0 1 .542-.542h2.166a.542.542 0 0 1 .542.542V3.25M10.833 3.25l-.541 6.633a1.083 1.083 0 0 1-1.084 1.009H3.792A1.083 1.083 0 0 1 2.708 9.883L2.167 3.25"
+      stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+);
+const CheckIcon = () => (
+  <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+    <path d="M2.167 6.5l3.25 3.25 5.416-6.5" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+);
+const XIcon = () => (
+  <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+    <path d="M9.75 3.25 3.25 9.75M3.25 3.25l6.5 6.5" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
+  </svg>
+);
+
+const EmptyState = ({ podcastTitle }: { podcastTitle?: string }) => (
+  <div style={{
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: '100%',
+    textAlign: 'center',
+    padding: 48,
+  }}>
+    <div style={{
+      fontFamily: 'var(--font-display)',
+      fontSize: 72,
+      fontWeight: 900,
+      fontStyle: 'italic',
+      color: 'var(--bg-elevated)',
+      lineHeight: 1,
+      marginBottom: 24,
+      userSelect: 'none',
+    }}>
+      "
+    </div>
+    <h3 style={{
+      fontFamily: 'var(--font-display)',
+      fontSize: 20,
+      fontWeight: 700,
+      fontStyle: 'italic',
+      color: 'var(--text-primary)',
+      margin: '0 0 10px',
+    }}>
+      {podcastTitle ? `Listening to "${podcastTitle}"` : 'Begin your inquiry'}
+    </h3>
+    <p style={{
+      fontFamily: 'var(--font-body)',
+      fontSize: 14,
+      fontStyle: 'italic',
+      color: 'var(--text-secondary)',
+      lineHeight: 1.7,
+      margin: 0,
+      maxWidth: 340,
+    }}>
+      Ask about episodes, key moments, guest names, or anything discussed in this podcast.
+    </p>
+  </div>
+);
+
+const ThinkingBubble = ({ processingEpisode }: { processingEpisode: boolean }) => (
+  <div style={{ display: 'flex', justifyContent: 'flex-start', marginBottom: 20 }}>
+    <div style={{
+      display: 'flex',
+      alignItems: 'center',
+      gap: 14,
+      background: 'var(--bg-elevated)',
+      border: '1px solid var(--border-medium)',
+      borderRadius: 'var(--radius-lg)',
+      padding: '12px 18px',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+        {[0, 1, 2].map(i => (
+          <div
+            key={i}
+            className="thinking-dot"
+            style={{
+              width: 5,
+              height: 5,
+              borderRadius: '50%',
+              background: 'var(--accent)',
+              animationDelay: `${i * 0.18}s`,
+            }}
+          />
+        ))}
+      </div>
+      <span style={{
+        fontFamily: 'var(--font-body)',
+        fontSize: 13,
+        fontStyle: 'italic',
+        color: 'var(--text-secondary)',
+      }}>
+        {processingEpisode ? 'Processing episode…' : 'Reading the transcript…'}
+      </span>
+    </div>
+  </div>
+);
+
 const ChatInterface: React.FC<ChatInterfaceProps> = ({
   chat,
   onSendMessage,
   loading,
-  processingEpisode,
-  onProcessEpisode,
+  onLoadAndAnswer,
+  loadingEpisodeForIndex,
   onUpdateChatTitle,
   onDeleteChat,
   pendingResponse,
@@ -32,17 +143,29 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const [inputValue, setInputValue] = useState('');
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [editTitle, setEditTitle] = useState('');
+  const [inputFocused, setInputFocused] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showLoadSuccess, setShowLoadSuccess] = useState(false);
+  const prevLoadingRef = useRef<number | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [chat?.all_messages, showTypingAnimation]);
+  }, [chat?.all_messages, showTypingAnimation, loading]);
 
   useEffect(() => {
-    if (chat) {
-      setEditTitle(chat.title);
-    }
+    if (chat) setEditTitle(chat.title);
   }, [chat]);
+
+  // Show success toast when episode loading completes
+  useEffect(() => {
+    if (prevLoadingRef.current !== null && loadingEpisodeForIndex === null) {
+      setShowLoadSuccess(true);
+      const timer = setTimeout(() => setShowLoadSuccess(false), 4000);
+      return () => clearTimeout(timer);
+    }
+    prevLoadingRef.current = loadingEpisodeForIndex;
+  }, [loadingEpisodeForIndex]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -60,110 +183,272 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   };
 
   const handleTitleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      handleTitleEdit();
-    } else if (e.key === 'Escape') {
-      setEditTitle(chat?.title || '');
-      setIsEditingTitle(false);
-    }
+    if (e.key === 'Enter') handleTitleEdit();
+    else if (e.key === 'Escape') { setEditTitle(chat?.title || ''); setIsEditingTitle(false); }
   };
 
-  const handleDeleteChat = async () => {
-    if (chat && window.confirm('Are you sure you want to delete this chat?')) {
-      await onDeleteChat(chat.id);
-    }
+  const handleDeleteChat = () => {
+    if (chat) setShowDeleteConfirm(true);
   };
 
-  const handleTypingComplete = () => {
-    if (onTypingComplete) {
-      onTypingComplete();
-    }
+  const confirmDelete = async () => {
+    setShowDeleteConfirm(false);
+    if (chat) await onDeleteChat(chat.id);
   };
 
   const renderMessage = (message: Message, index: number) => {
     if (message.type === 'question') {
       return (
-        <div key={index} className="flex justify-end mb-6">
-          <div className="bg-gradient-to-r from-blue-600 to-blue-700 text-white px-6 py-4 rounded-3xl rounded-tr-lg max-w-xs lg:max-w-lg shadow-lg">
-            <div className="text-[15px] font-medium leading-relaxed">{message.content}</div>
+        <div key={index} style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 20 }}>
+          <div style={{ maxWidth: 520 }}>
+            <div style={{
+              background: 'var(--text-primary)',
+              color: 'var(--bg-page)',
+              padding: '12px 18px',
+              borderRadius: 'var(--radius-lg)',
+              fontFamily: 'var(--font-body)',
+              fontSize: 14.5,
+              lineHeight: 1.65,
+              fontWeight: 500,
+            }}>
+              {message.content}
+            </div>
           </div>
         </div>
       );
     }
 
     if (message.type === 'answer') {
-      // Check if this is a search result with episode data
-      if (message.isSearch && typeof message.content === 'object' && message.content.title) {
-        const episode = message.content;
+      // Episode card with Load button
+      if (message.needsLoad && message.episodeData) {
+        const ep = message.episodeData;
+        const isLoadingThis = loadingEpisodeForIndex === index;
+
         return (
-          <div key={index} className="flex justify-start mb-6">
-            <div className="bg-gradient-to-br from-emerald-50 via-blue-50 to-purple-50 px-6 py-5 rounded-3xl rounded-tl-lg max-w-xs lg:max-w-lg shadow-lg border border-blue-100">
-              <div className="flex items-center gap-2 mb-4">
-                <div className="w-2 h-2 bg-emerald-500 rounded-full"></div>
-                <div className="text-[16px] font-bold text-gray-800">Found Episode</div>
+          <div key={index} style={{ marginBottom: 20 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+              <div style={{ width: 20, height: 20, background: 'var(--text-primary)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                  <rect x="0.5" y="3.5" width="1.5" height="3" rx="0.75" fill="#faf6ef" />
+                  <rect x="3" y="2" width="1.5" height="6" rx="0.75" fill="#faf6ef" />
+                  <rect x="5.5" y="0.5" width="1.5" height="9" rx="0.75" fill="#faf6ef" />
+                  <rect x="8" y="2.5" width="1.5" height="5" rx="0.75" fill="#faf6ef" />
+                </svg>
               </div>
-              <div className="space-y-4">
+              <span style={{ fontFamily: 'var(--font-display)', fontSize: 11, fontWeight: 600, letterSpacing: '0.1em', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Frequency</span>
+            </div>
+
+            <div style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-lg)', padding: '16px 20px', maxWidth: 560 }}>
+              {/* Metadata answer */}
+              <p style={{ fontFamily: 'var(--font-body)', fontSize: 14.5, color: 'var(--text-primary)', lineHeight: 1.8, margin: '0 0 16px', whiteSpace: 'pre-wrap' }}>
+                {message.content}
+              </p>
+
+              {/* Divider */}
+              <div style={{ height: 1, background: 'var(--border-medium)', marginBottom: 14 }} />
+
+              {/* Episode info */}
+              <p style={{ fontFamily: 'var(--font-display)', fontSize: 11, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--text-muted)', margin: '0 0 4px' }}>
+                Episode
+              </p>
+              <p style={{ fontFamily: 'var(--font-display)', fontSize: 14, fontWeight: 700, fontStyle: 'italic', color: 'var(--text-primary)', margin: '0 0 12px' }}>
+                {ep.title}
+              </p>
+
+              {/* Load button or progress bar */}
+              {isLoadingThis ? (
                 <div>
-                  <div className="text-[13px] font-semibold text-gray-600 mb-2 uppercase tracking-wide">Title</div>
-                  <div className="text-[15px] text-gray-900 font-medium leading-relaxed">{episode.title}</div>
-                </div>
-                <div>
-                  <div className="text-[13px] font-semibold text-gray-600 mb-2 uppercase tracking-wide">Audio URL</div>
-                  <a 
-                    href={episode.audio_url} 
-                    target="_blank" 
-                    rel="noopener noreferrer" 
-                    className="inline-flex items-center gap-2 text-[14px] text-blue-600 hover:text-blue-800 hover:underline font-medium transition-colors bg-blue-50 hover:bg-blue-100 px-3 py-2 rounded-lg border border-blue-200"
-                  >
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                      <polyline points="15,3 21,3 21,9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                      <line x1="10" y1="14" x2="21" y2="3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                    </svg>
-                    <span className="break-all">Open Audio File</span>
-                  </a>
-                  <div className="text-xs text-gray-500 mt-1 break-all font-mono">{episode.audio_url}</div>
-                </div>
-                {episode.summary && (
-                  <div>
-                    <div className="text-[13px] font-semibold text-gray-600 mb-2 uppercase tracking-wide">Summary</div>
-                    <div className="text-[15px] text-gray-700 leading-relaxed">{episode.summary}</div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                    <span style={{ fontFamily: 'var(--font-display)', fontSize: 11, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--text-secondary)' }}>
+                      Transcribing episode…
+                    </span>
                   </div>
-                )}
-              </div>
+                  <div style={{ width: '100%', height: 5, background: 'var(--bg-card)', borderRadius: 3, overflow: 'hidden' }}>
+                    <div style={{
+                      height: '100%',
+                      background: 'var(--accent)',
+                      borderRadius: 3,
+                      animation: 'loadBar 20s cubic-bezier(0.1,0.4,0.8,1) forwards',
+                    }} />
+                  </div>
+                  <p style={{ fontFamily: 'var(--font-body)', fontSize: 11, fontStyle: 'italic', color: 'var(--text-muted)', margin: '6px 0 0' }}>
+                    This may take a few minutes depending on episode length.
+                  </p>
+                </div>
+              ) : (
+                <button
+                  onClick={() => onLoadAndAnswer(ep.audio_url, ep.title, message.originalQuestion || '', index)}
+                  style={{
+                    background: 'transparent',
+                    border: '1px solid var(--border-strong)',
+                    borderRadius: 'var(--radius-sm)',
+                    padding: '8px 16px',
+                    fontFamily: 'var(--font-display)',
+                    fontSize: 11,
+                    fontWeight: 700,
+                    letterSpacing: '0.1em',
+                    textTransform: 'uppercase',
+                    color: 'var(--text-secondary)',
+                    cursor: 'pointer',
+                    transition: 'background 0.2s, color 0.2s, border-color 0.2s',
+                  }}
+                  onMouseEnter={e => {
+                    e.currentTarget.style.background = 'var(--text-primary)';
+                    e.currentTarget.style.color = 'var(--bg-page)';
+                    e.currentTarget.style.borderColor = 'var(--text-primary)';
+                  }}
+                  onMouseLeave={e => {
+                    e.currentTarget.style.background = 'transparent';
+                    e.currentTarget.style.color = 'var(--text-secondary)';
+                    e.currentTarget.style.borderColor = 'var(--border-strong)';
+                  }}
+                >
+                  Load for deeper answer →
+                </button>
+              )}
             </div>
           </div>
         );
       }
 
-      // Regular answer - improved styling
-      let displayContent = '';
-      
-      if (typeof message.content === 'string') {
-        displayContent = message.content;
-      } else if (message.content && typeof message.content === 'object') {
-        if (message.content.answer) {
-          displayContent = message.content.answer;
-        } else {
-          displayContent = JSON.stringify(message.content, null, 2);
-        }
-      } else {
-        displayContent = 'No content available';
+      if (message.isSearch && typeof message.content === 'object' && message.content?.title) {
+        const episode = message.content;
+        return (
+          <div key={index} style={{ marginBottom: 20 }}>
+            <div style={{
+              background: 'var(--bg-elevated)',
+              border: '1px solid var(--border-medium)',
+              borderLeft: '3px solid var(--accent)',
+              borderRadius: 'var(--radius-lg)',
+              padding: '18px 20px',
+              maxWidth: 520,
+            }}>
+              <div style={{
+                fontFamily: 'var(--font-display)',
+                fontSize: 10,
+                fontWeight: 700,
+                letterSpacing: '0.16em',
+                color: 'var(--accent)',
+                textTransform: 'uppercase',
+                marginBottom: 10,
+              }}>
+                Episode Found
+              </div>
+              <h4 style={{
+                fontFamily: 'var(--font-display)',
+                fontSize: 16,
+                fontWeight: 700,
+                fontStyle: 'italic',
+                color: 'var(--text-primary)',
+                margin: '0 0 8px',
+                lineHeight: 1.3,
+              }}>
+                {episode.title}
+              </h4>
+              {episode.summary && (
+                <p style={{
+                  fontFamily: 'var(--font-body)',
+                  fontSize: 13,
+                  fontStyle: 'italic',
+                  color: 'var(--text-secondary)',
+                  lineHeight: 1.7,
+                  margin: '0 0 12px',
+                }}>
+                  {episode.summary}
+                </p>
+              )}
+              <a
+                href={episode.audio_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  fontFamily: 'var(--font-display)',
+                  fontSize: 11,
+                  fontWeight: 700,
+                  letterSpacing: '0.1em',
+                  textTransform: 'uppercase',
+                  color: 'var(--accent)',
+                  textDecoration: 'none',
+                  borderBottom: '1px solid var(--accent-border)',
+                  paddingBottom: 2,
+                }}
+              >
+                Open Audio →
+              </a>
+            </div>
+          </div>
+        );
       }
 
+      let displayContent = '';
+      if (typeof message.content === 'string') displayContent = message.content;
+      else if (message.content?.answer) displayContent = message.content.answer;
+      else if (message.content) displayContent = JSON.stringify(message.content, null, 2);
+      else displayContent = 'No content available';
+
       return (
-        <div key={index} className="flex justify-start mb-6">
-          <div className="bg-gradient-to-br from-gray-50 via-slate-50 to-gray-100 px-6 py-5 rounded-3xl rounded-tl-lg max-w-xs lg:max-w-3xl shadow-lg border border-gray-200">
-            <div className="flex items-start gap-3">
-              <div className="w-8 h-8 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center flex-shrink-0 mt-1">
-                <div className="w-2 h-2 bg-white rounded-full"></div>
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="text-[15px] text-gray-800 leading-relaxed font-medium whitespace-pre-wrap">
-                  {displayContent}
-                </div>
-              </div>
+        <div key={index} style={{ marginBottom: 20 }}>
+          {/* Byline */}
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            marginBottom: 8,
+          }}>
+            <div style={{
+              width: 20,
+              height: 20,
+              background: 'var(--text-primary)',
+              borderRadius: '50%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}>
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                <rect x="0.5" y="3.5" width="1.5" height="3" rx="0.75" fill="#faf6ef" />
+                <rect x="3"   y="2"   width="1.5" height="6" rx="0.75" fill="#faf6ef" />
+                <rect x="5.5" y="0.5" width="1.5" height="9" rx="0.75" fill="#faf6ef" />
+                <rect x="8"   y="2.5" width="1.5" height="5" rx="0.75" fill="#faf6ef" />
+              </svg>
             </div>
+            <span style={{
+              fontFamily: 'var(--font-display)',
+              fontSize: 11,
+              fontWeight: 600,
+              letterSpacing: '0.1em',
+              color: 'var(--text-muted)',
+              textTransform: 'uppercase',
+            }}>
+              Frequency
+            </span>
+            <span style={{
+              fontFamily: 'var(--font-body)',
+              fontSize: 11,
+              fontStyle: 'italic',
+              color: 'var(--text-muted)',
+            }}>
+              — {new Date(message.timestamp).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+            </span>
+          </div>
+
+          {/* Body */}
+          <div style={{
+            background: 'var(--bg-elevated)',
+            border: '1px solid var(--border-subtle)',
+            borderRadius: 'var(--radius-lg)',
+            padding: '16px 20px',
+            maxWidth: 680,
+          }}>
+            <p style={{
+              fontFamily: 'var(--font-body)',
+              fontSize: 14.5,
+              color: 'var(--text-primary)',
+              lineHeight: 1.8,
+              margin: 0,
+              whiteSpace: 'pre-wrap',
+            }}>
+              {displayContent}
+            </p>
           </div>
         </div>
       );
@@ -174,128 +459,247 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
   if (!chat) {
     return (
-      <div className="flex-1 flex items-center justify-center bg-gray-50">
-        <div className="text-center text-gray-500">
-          <h2 className="text-xl font-medium mb-2">No chat selected</h2>
-          <p>Create a new chat or select an existing one to start chatting.</p>
+      <div style={{
+        flex: 1,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: 'var(--bg-page)',
+        flexDirection: 'column',
+        gap: 12,
+        textAlign: 'center',
+        padding: 40,
+      }}>
+        <div style={{
+          fontFamily: 'var(--font-display)',
+          fontSize: 52,
+          fontWeight: 900,
+          fontStyle: 'italic',
+          color: 'var(--bg-elevated)',
+          lineHeight: 1,
+          marginBottom: 8,
+          userSelect: 'none',
+        }}>
+          "
         </div>
+        <p style={{
+          fontFamily: 'var(--font-display)',
+          fontSize: 18,
+          fontStyle: 'italic',
+          color: 'var(--text-secondary)',
+          margin: 0,
+        }}>
+          Select a conversation or start a new one.
+        </p>
       </div>
     );
   }
 
-  const hasPodcastSelected = chat.podcast_title && chat.feed_url;
+  const hasPodcastSelected = !!(chat.podcast_title && chat.feed_url);
 
   return (
-    <div className="flex-1 flex flex-col bg-white">
-      {/* Chat Header */}
-      <div className="border-b border-gray-200 px-4 py-3 bg-white">
-        <div className="flex items-center justify-between">
-          <div className="flex-1">
-            {isEditingTitle ? (
-              <div className="flex items-center gap-2">
-                <input
-                  type="text"
-                  value={editTitle}
-                  onChange={(e) => setEditTitle(e.target.value)}
-                  onKeyDown={handleTitleKeyPress}
-                  onBlur={handleTitleEdit}
-                  className="flex-1 px-2 py-1 border border-gray-300 rounded text-lg font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  autoFocus
-                />
-                <button
-                  onClick={handleTitleEdit}
-                  className="p-1 text-green-600 hover:bg-green-50 rounded"
-                >
-                  <Check size={16} />
-                </button>
-                <button
-                  onClick={() => {
-                    setEditTitle(chat?.title || '');
-                    setIsEditingTitle(false);
-                  }}
-                  className="p-1 text-red-600 hover:bg-red-50 rounded"
-                >
-                  <X size={16} />
-                </button>
-              </div>
-            ) : (
-              <div>
-                <h1 className="font-semibold text-gray-900">{chat.title}</h1>
-                {chat.podcast_title && (
-                  <p className="text-sm text-gray-600">{chat.podcast_title}</p>
-                )}
-              </div>
-            )}
-          </div>
-          
-          {!isEditingTitle && (
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setIsEditingTitle(true)}
-                className="p-2 text-gray-500 hover:bg-gray-100 rounded transition-colors"
-                title="Edit title"
-              >
-                <Edit2 size={16} />
+    <div style={{
+      flex: 1,
+      display: 'flex',
+      flexDirection: 'column',
+      background: 'var(--bg-page)',
+      overflow: 'hidden',
+    }}>
+      <ConfirmModal
+        isOpen={showDeleteConfirm}
+        title="Delete conversation?"
+        message="This will permanently remove the chat and all its messages. This cannot be undone."
+        confirmLabel="Delete"
+        onConfirm={confirmDelete}
+        onCancel={() => setShowDeleteConfirm(false)}
+      />
+
+      {/* Success toast */}
+      {showLoadSuccess && (
+        <div style={{
+          position: 'fixed',
+          bottom: 32,
+          right: 32,
+          zIndex: 500,
+          background: 'var(--text-primary)',
+          color: 'var(--bg-page)',
+          borderRadius: 'var(--radius-lg)',
+          padding: '12px 20px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+          boxShadow: '0 8px 32px rgba(0,0,0,0.18)',
+          animation: 'toastIn 0.25s ease-out',
+        }}>
+          <style>{`
+            @keyframes toastIn {
+              from { opacity: 0; transform: translateY(10px); }
+              to   { opacity: 1; transform: translateY(0); }
+            }
+          `}</style>
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <circle cx="8" cy="8" r="7" stroke="currentColor" strokeWidth="1.5" opacity="0.4" />
+            <path d="M5 8l2.5 2.5L11 5.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          <span style={{
+            fontFamily: 'var(--font-display)',
+            fontSize: 12,
+            fontWeight: 700,
+            letterSpacing: '0.08em',
+            textTransform: 'uppercase',
+          }}>
+            Episode loaded
+          </span>
+        </div>
+      )}
+
+      {/* Header */}
+      <div style={{
+        borderBottom: '1px solid var(--border-medium)',
+        padding: '16px 32px',
+        background: 'var(--bg-page)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        flexShrink: 0,
+      }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          {isEditingTitle ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <input
+                type="text"
+                value={editTitle}
+                onChange={e => setEditTitle(e.target.value)}
+                onKeyDown={handleTitleKeyPress}
+                onBlur={handleTitleEdit}
+                autoFocus
+                style={{
+                  flex: 1,
+                  background: 'transparent',
+                  border: 'none',
+                  borderBottom: '2px solid var(--accent)',
+                  outline: 'none',
+                  fontFamily: 'var(--font-display)',
+                  fontSize: 18,
+                  fontWeight: 700,
+                  fontStyle: 'italic',
+                  color: 'var(--text-primary)',
+                  padding: '4px 0',
+                  borderRadius: 0,
+                }}
+              />
+              <button onClick={handleTitleEdit} style={{ padding: 6, background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--accent)' }}>
+                <CheckIcon />
               </button>
-              <button
-                onClick={handleDeleteChat}
-                className="p-2 text-red-500 hover:bg-red-50 rounded transition-colors"
-                title="Delete chat"
-              >
-                <Trash2 size={16} />
+              <button onClick={() => { setEditTitle(chat.title); setIsEditingTitle(false); }} style={{ padding: 6, background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}>
+                <XIcon />
               </button>
+            </div>
+          ) : (
+            <div>
+              <h1 style={{
+                fontFamily: 'var(--font-display)',
+                fontSize: 18,
+                fontWeight: 700,
+                fontStyle: 'italic',
+                color: 'var(--text-primary)',
+                margin: 0,
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+              }}>
+                {chat.title}
+              </h1>
+              {chat.podcast_title && (
+                <p style={{
+                  fontFamily: 'var(--font-body)',
+                  fontSize: 12,
+                  fontStyle: 'italic',
+                  color: 'var(--accent)',
+                  margin: '2px 0 0',
+                }}>
+                  {chat.podcast_title}
+                </p>
+              )}
             </div>
           )}
         </div>
+
+        {!isEditingTitle && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginLeft: 16 }}>
+            <button
+              onClick={() => setIsEditingTitle(true)}
+              title="Rename"
+              style={{
+                padding: 7,
+                background: 'transparent',
+                border: '1px solid var(--border-subtle)',
+                borderRadius: 'var(--radius-sm)',
+                cursor: 'pointer',
+                color: 'var(--text-muted)',
+                display: 'flex',
+                alignItems: 'center',
+                transition: 'color 0.15s, border-color 0.15s',
+              }}
+              onMouseEnter={e => { e.currentTarget.style.color = 'var(--text-secondary)'; e.currentTarget.style.borderColor = 'var(--border-medium)'; }}
+              onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.borderColor = 'var(--border-subtle)'; }}
+            >
+              <EditIcon />
+            </button>
+            <button
+              onClick={handleDeleteChat}
+              title="Delete"
+              style={{
+                padding: 7,
+                background: 'transparent',
+                border: '1px solid var(--border-subtle)',
+                borderRadius: 'var(--radius-sm)',
+                cursor: 'pointer',
+                color: 'var(--text-muted)',
+                display: 'flex',
+                alignItems: 'center',
+                transition: 'color 0.15s, border-color 0.15s',
+              }}
+              onMouseEnter={e => { e.currentTarget.style.color = 'var(--accent)'; e.currentTarget.style.borderColor = 'var(--accent-border)'; }}
+              onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.borderColor = 'var(--border-subtle)'; }}
+            >
+              <TrashIcon />
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+      <div style={{
+        flex: 1,
+        overflowY: 'auto',
+        padding: '32px 40px',
+        display: 'flex',
+        flexDirection: 'column',
+      }}>
         {!hasPodcastSelected ? (
-          <div className="text-center text-gray-500 mt-8">
-            <p>This chat doesn't have a podcast selected yet.</p>
-            <p className="text-sm mt-1">Please select a podcast to start chatting.</p>
+          <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center' }}>
+            <p style={{ fontFamily: 'var(--font-body)', fontSize: 14, fontStyle: 'italic', color: 'var(--text-secondary)', margin: 0 }}>
+              No podcast selected for this conversation yet.
+            </p>
           </div>
         ) : (
           <>
             {chat.all_messages.length === 0 ? (
-              <div className="text-center text-gray-500 mt-8">
-                <p>Start a conversation about {chat.podcast_title}!</p>
-                <p className="text-sm mt-1">Ask questions about episodes or search for specific content.</p>
+              <div style={{ flex: 1 }}>
+                <EmptyState podcastTitle={chat.podcast_title} />
               </div>
             ) : (
-              <>
-                <div className="text-xs text-gray-400 mb-2">Debug: {chat.all_messages.length} messages</div>
+              <div className="animate-fade-in">
                 {chat.all_messages.map(renderMessage)}
-              </>
+              </div>
             )}
 
-            {/* Show typing animation */}
             {showTypingAnimation && pendingResponse && (
-              <TypingMessage 
-                text={pendingResponse} 
-                onComplete={handleTypingComplete}
-                speed={20}
-              />
+              <TypingMessage text={pendingResponse} onComplete={onTypingComplete} speed={20} />
             )}
-            
             {loading && !showTypingAnimation && (
-              <div className="flex justify-start mb-6">
-                <div className="bg-gradient-to-br from-gray-50 via-slate-50 to-gray-100 px-6 py-5 rounded-3xl rounded-tl-lg shadow-lg border border-gray-200">
-                  <div className="flex items-center gap-4">
-                    <div className="w-8 h-8 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center">
-                      <div className="flex space-x-1">
-                        <div className="w-1 h-1 bg-white rounded-full animate-bounce"></div>
-                        <div className="w-1 h-1 bg-white rounded-full animate-bounce" style={{animationDelay: '0.1s'}}></div>
-                        <div className="w-1 h-1 bg-white rounded-full animate-bounce" style={{animationDelay: '0.2s'}}></div>
-                      </div>
-                    </div>
-                    <span className="text-gray-700 font-medium text-[15px]">
-                      {processingEpisode ? 'Processing episode content...' : 'Thinking...'}
-                    </span>
-                  </div>
-                </div>
-              </div>
+              <ThinkingBubble processingEpisode={false} />
             )}
           </>
         )}
@@ -304,23 +708,80 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
       {/* Input */}
       {hasPodcastSelected && (
-        <div className="border-t border-gray-200 px-4 py-4 bg-white">
-          <form onSubmit={handleSubmit} className="flex gap-2">
-            <input
-              type="text"
-              value={inputValue}
-              onChange={(e) => setInputValue(e.target.value)}
-              placeholder="Ask about the podcast..."
-              className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              disabled={loading}
-            />
-            <button
-              type="submit"
-              disabled={loading || !inputValue.trim()}
-              className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <Send size={16} />
-            </button>
+        <div style={{
+          padding: '16px 32px 22px',
+          borderTop: '1px solid var(--border-medium)',
+          background: 'var(--bg-page)',
+          flexShrink: 0,
+        }}>
+          <form onSubmit={handleSubmit}>
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+              borderBottom: `2px solid ${inputFocused ? 'var(--accent)' : 'var(--border-strong)'}`,
+              paddingBottom: 10,
+              transition: 'border-color 0.2s',
+            }}>
+              <input
+                type="text"
+                value={inputValue}
+                onChange={e => setInputValue(e.target.value)}
+                onFocus={() => setInputFocused(true)}
+                onBlur={() => setInputFocused(false)}
+                placeholder={`Ask about ${chat.podcast_title || 'this podcast'}…`}
+                disabled={loading}
+                style={{
+                  flex: 1,
+                  background: 'transparent',
+                  border: 'none',
+                  outline: 'none',
+                  fontFamily: 'var(--font-body)',
+                  fontSize: 15,
+                  fontStyle: 'italic',
+                  color: 'var(--text-primary)',
+                  padding: 0,
+                  opacity: loading ? 0.5 : 1,
+                }}
+              />
+              <button
+                type="submit"
+                disabled={loading || !inputValue.trim()}
+                style={{
+                  padding: '8px 16px',
+                  background: loading || !inputValue.trim() ? 'transparent' : 'var(--text-primary)',
+                  color: loading || !inputValue.trim() ? 'var(--text-muted)' : 'var(--bg-page)',
+                  border: `1px solid ${loading || !inputValue.trim() ? 'var(--border-medium)' : 'var(--text-primary)'}`,
+                  borderRadius: 'var(--radius-sm)',
+                  fontFamily: 'var(--font-display)',
+                  fontSize: 11,
+                  fontWeight: 700,
+                  letterSpacing: '0.1em',
+                  textTransform: 'uppercase',
+                  cursor: loading || !inputValue.trim() ? 'not-allowed' : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  transition: 'all 0.2s',
+                  flexShrink: 0,
+                }}
+                onMouseEnter={e => {
+                  if (!loading && inputValue.trim()) {
+                    e.currentTarget.style.background = 'var(--accent)';
+                    e.currentTarget.style.borderColor = 'var(--accent)';
+                  }
+                }}
+                onMouseLeave={e => {
+                  if (!loading && inputValue.trim()) {
+                    e.currentTarget.style.background = 'var(--text-primary)';
+                    e.currentTarget.style.borderColor = 'var(--text-primary)';
+                  }
+                }}
+              >
+                Send
+                <SendIcon />
+              </button>
+            </div>
           </form>
         </div>
       )}

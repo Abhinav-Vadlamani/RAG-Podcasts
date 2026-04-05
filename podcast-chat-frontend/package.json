@@ -38,7 +38,8 @@
         "last 1 safari version"
       ]
     },
-    "devDependencies": {
+    "proxy": "http://127.0.0.1:5002",
+  "devDependencies": {
       "@types/jest": "^27.5.0",
       "autoprefixer": "^10.4.0",
       "postcss": "^8.4.0"
